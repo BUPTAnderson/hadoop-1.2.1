@@ -969,7 +969,8 @@ public class JobClient extends Configured implements MRConstants, Tool  {
         try {
           // 令牌
           populateTokenCache(jobCopy, jobCopy.getCredentials());
-          //创建${mapreduce.job.dir}目录, 并上传文件.在copyAndConfigureFiles中完成
+          // 创建${mapreduce.job.dir}目录, 并上传文件.在copyAndConfigureFiles中完成
+          // 除了job.xml其它目录的建立以及文件的上传都在该方法中完成.
           copyAndConfigureFiles(jobCopy, submitJobDir);
 
           // get delegation token for the dir 获取授权令牌
@@ -1005,18 +1006,19 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           LOG.debug("Creating splits at " + fs.makeQualified(submitJobDir));
           // 调用writeSplits, 获取输入文件的分片数，以及将分片信息上传到工作目录
           int maps = writeSplits(context, submitJobDir);
-          // 这里可以确定，有多少个分片就有多少个map task任务.
+          // 这里可以确定，有多少个分片就有多少个map task任务.用户自己设置的map数量是没有用的.
           jobCopy.setNumMapTasks(maps);
 
           // write "queue admins of the queue to which job is being submitted"
           // to job file.
+          // 下面4行代码是获得job对应的任务队列信息，这里涉及到hadoop的作业调度内容，就不深入研究了
           String queue = jobCopy.getQueueName();
           AccessControlList acl = jobSubmitClient.getQueueAdmins(queue);
           jobCopy.set(QueueManager.toFullPropertyName(queue,
               QueueACL.ADMINISTER_JOBS.getAclName()), acl.getACLString());
 
-          // Write job file to JobTracker's fs        
-          FSDataOutputStream out = 
+          // Write job file to JobTracker's fs
+          FSDataOutputStream out =
             FileSystem.create(fs, submitJobFile,
                 new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION));
 
@@ -1027,12 +1029,15 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           TokenCache.cleanUpTokenReferral(jobCopy);
 
           try {
+            // 将job的配置文件信息(jobConf对象)写入到xml文件中
+            // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.xml
             jobCopy.writeXml(out);
           } finally {
             out.close();
           }
           //
           // Now, actually submit the job (using the submit name)
+          // 下面就是实际的job提交
           //
           printTokens(jobId, jobCopy.getCredentials());
           // 调用RPC方法submitJob, 将作业提交到JobTracker端
@@ -1078,7 +1083,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     InputFormat<?, ?> input =
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
-    // 参考FileInputFormat的实现
+    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考FileInputFormat的实现
     List<InputSplit> splits = input.getSplits(job);
     T[] array = (T[]) splits.toArray(new InputSplit[splits.size()]);
 
@@ -1097,6 +1102,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       InterruptedException, ClassNotFoundException {
     JobConf jConf = (JobConf)job.getConfiguration();
     int maps;
+    // 这里判断使用new-api还是old-api进行分片操作。
     if (jConf.getUseNewMapper()) {
       // 调用writeNewSplits获取输入文件分片数
       maps = writeNewSplits(job, jobSubmitDir);
