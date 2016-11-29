@@ -1,3 +1,5 @@
+这是hadoop-1.2.1的源码，我在学习阅读该源码的时候加入了自己的注释，方便自己查询，
+任何人都可以查看该注释后的源码，水平有限，如有不对，欢迎指正。
 For the latest information about Hadoop, please visit our website at:
 
    http://hadoop.apache.org/core/
