@@ -548,6 +548,7 @@ public class Job extends JobContext {
     // Connect to the JobTracker and submit the job
     connect();
     // 调用JobClient的submitJobInternal方法
+    // 不管是新的mapreduce api还是旧的api, 都会调用submitJobInternal方法.
     info = jobClient.submitJobInternal(conf);
     super.setJobID(info.getID());
     state = JobState.RUNNING;

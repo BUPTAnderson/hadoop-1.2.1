@@ -100,6 +100,7 @@ public class JobSubmissionFiles {
   public static Path getStagingDir(JobClient client, Configuration conf) 
   throws IOException, InterruptedException {
     // 获取mapreduce.jobtracker.staging.root.dir属性值
+    // 实际是调用的JobTracker端的getStagingAreaDir()方法
     Path stagingArea = client.getStagingAreaDir();
     FileSystem fs = stagingArea.getFileSystem(conf);
     String realUser;

@@ -957,6 +957,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       IOException{
         JobConf jobCopy = job;
         // 获取作业存放目录:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging
+        // 实际是调用JobTracker端的getStagingAreaDir()方法
         Path jobStagingArea = JobSubmissionFiles.getStagingDir(JobClient.this,
             jobCopy);
         // 获取下一个jobID
@@ -1080,15 +1081,17 @@ public class JobClient extends Configured implements MRConstants, Tool  {
   int writeNewSplits(JobContext job, Path jobSubmitDir) throws IOException,
       InterruptedException, ClassNotFoundException {
     Configuration conf = job.getConfiguration();
+    // 根据Job配置中设置的InputFormat，计算该Job的数据数据文件是如何进行分片的
     InputFormat<?, ?> input =
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
-    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考FileInputFormat的实现
+    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考默认的FileInputFormat的实现
+    // 如果不想用hadoop自带的FileInputFormat的默认getSplits方法实现, 可以自定义实现, 重写该默认实现逻辑来定义数据数据文件分片的规则.
     List<InputSplit> splits = input.getSplits(job);
     T[] array = (T[]) splits.toArray(new InputSplit[splits.size()]);
 
     // sort the splits into order based on size, so that the biggest
-    // go first
+    // go first 从大到小排列(逆序排序)
     Arrays.sort(array, new SplitComparator());
     // 创建文件job.split和job.splitmetainfo文件并将分片信息写入文件中.
     JobSplitWriter.createSplitFiles(jobSubmitDir, conf,
