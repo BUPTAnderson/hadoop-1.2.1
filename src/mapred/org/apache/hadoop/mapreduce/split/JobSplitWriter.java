@@ -133,6 +133,15 @@ public class JobSplitWriter {
         Serializer<T> serializer = 
           factory.getSerializer((Class<T>) split.getClass());
         serializer.open(out);
+        // 默认调用WritableSerialization的serialize(Writable w)
+        // public void serialize(Writable w) throws IOException {
+        //  w.write(dataOut);
+        // }
+        // 所以实际是调用的FileSplit的write(DataOutput out), 进入该方法发现并没有将FileSplit的hosts信息写入输出流
+        // 即向 job.split文件中没有保存每个split对应的hosts信息, 该信息保存到了SplitMetaInfo中, 对应信息如下
+        //   split.log:  |split_0.getclass.getName,分片0所在file name, split_0.length|split_1.getclass.getName,分片1所在file name, split_1.length|....
+        //split.log中位置:0                                                          t                                                          m
+        //每个split对应的信息： SplitMetaInfo(split_0.getLocations, 0, split_0.length), SplitMetaInfo(split_1.getLocations, t, split_1.length)
         serializer.serialize(split);
         long currCount = out.getPos();
         String[] locations = split.getLocations();
@@ -187,6 +196,10 @@ public class JobSplitWriter {
       JobSplit.SplitMetaInfo[] allSplitMetaInfo) 
   throws IOException {
     // write the splits meta-info to a file for the job tracker
+    // job.splitmetainfo 内容:
+    // head|version|分片数|split_0.getlocations.length, split_0.getlocations, split_0.在split.log中的偏移量, split_0.length|
+    //                   |split_1.getlocations.length, split_1.getlocations, split_1.在split.log中的偏移量, split_1.length|
+    //                   |...
     FSDataOutputStream out = 
       FileSystem.create(fs, filename, p);
     out.write(JobSplit.META_SPLIT_FILE_HEADER);

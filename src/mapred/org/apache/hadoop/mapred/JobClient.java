@@ -979,9 +979,11 @@ public class JobClient extends Configured implements MRConstants, Tool  {
                                               new Path [] {submitJobDir},
                                               jobCopy);
 
+          //获取路径： ${mapreduce.job.dir}/job.xml, 用来保存job的配置信息
           Path submitJobFile = JobSubmissionFiles.getJobConfPath(submitJobDir);
           int reduces = jobCopy.getNumReduceTasks();
           InetAddress ip = InetAddress.getLocalHost();
+          // 将提交job的host的ip和hostname添加到jobconf中
           if (ip != null) {
             job.setJobSubmitHostAddress(ip.getHostAddress());
             job.setJobSubmitHostName(ip.getHostName());
@@ -1002,7 +1004,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           
           jobCopy = (JobConf)context.getConfiguration();
 
-          // Create the splits for the job 对输入文件进行分片操作
+          // Create the splits for the job 对job创建splits信息
           FileSystem fs = submitJobDir.getFileSystem(jobCopy);
           LOG.debug("Creating splits at " + fs.makeQualified(submitJobDir));
           // 调用writeSplits, 获取输入文件的分片数，以及将分片信息上传到工作目录
@@ -1012,13 +1014,14 @@ public class JobClient extends Configured implements MRConstants, Tool  {
 
           // write "queue admins of the queue to which job is being submitted"
           // to job file.
-          // 下面4行代码是获得job对应的任务队列信息，这里涉及到hadoop的作业调度内容，就不深入研究了
+          // 下面4行代码是获得job对应的任务队列信息，这里涉及到hadoop的作业调度内容
           String queue = jobCopy.getQueueName();
           AccessControlList acl = jobSubmitClient.getQueueAdmins(queue);
           jobCopy.set(QueueManager.toFullPropertyName(queue,
               QueueACL.ADMINISTER_JOBS.getAclName()), acl.getACLString());
 
           // Write job file to JobTracker's fs
+          // 创建${mapreduce.job.dir}/job.xml 输入流
           FSDataOutputStream out =
             FileSystem.create(fs, submitJobFile,
                 new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION));
@@ -1030,7 +1033,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           TokenCache.cleanUpTokenReferral(jobCopy);
 
           try {
-            // 将job的配置文件信息(jobConf对象)写入到xml文件中
+            // 将job的配置文件信息(jobConf对象)写入到job.xml文件中
             // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.xml
             jobCopy.writeXml(out);
           } finally {
@@ -1086,6 +1089,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
     // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考默认的FileInputFormat的实现
+    // FileInputFormat返回的是List<FileSplit>, FileSplit extends InputSplit
     // 如果不想用hadoop自带的FileInputFormat的默认getSplits方法实现, 可以自定义实现, 重写该默认实现逻辑来定义数据数据文件分片的规则.
     List<InputSplit> splits = input.getSplits(job);
     T[] array = (T[]) splits.toArray(new InputSplit[splits.size()]);

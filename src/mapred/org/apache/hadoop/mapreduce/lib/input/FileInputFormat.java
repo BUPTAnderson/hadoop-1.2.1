@@ -244,24 +244,31 @@ public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
    */ 
   public List<InputSplit> getSplits(JobContext job
                                     ) throws IOException {
+    // 默认值 1L
     long minSize = Math.max(getFormatMinSplitSize(), getMinSplitSize(job));
+    // 默认值 Long.MAX_VALUE
     long maxSize = getMaxSplitSize(job);
 
     // generate splits
     List<InputSplit> splits = new ArrayList<InputSplit>();
     List<FileStatus>files = listStatus(job);
+    // 对输入文件进行遍历
     for (FileStatus file: files) {
       Path path = file.getPath();
       FileSystem fs = path.getFileSystem(job.getConfiguration());
       long length = file.getLen();
       BlockLocation[] blkLocations = fs.getFileBlockLocations(file, 0, length);
+      // 输入文件可以被分割
       if ((length != 0) && isSplitable(job, path)) { 
         long blockSize = file.getBlockSize();
+        // 默认情况下 splitSize = blockSize
         long splitSize = computeSplitSize(blockSize, minSize, maxSize);
 
         long bytesRemaining = length;
         while (((double) bytesRemaining)/splitSize > SPLIT_SLOP) {
           int blkIndex = getBlockIndex(blkLocations, length-bytesRemaining);
+          // FileSplit(Path file, long start, long length, String[] hosts)
+          // 即记录每个分片的路径, 开始位置, 长度, 所在的hosts, 默认一个block对应一个split
           splits.add(new FileSplit(path, length-bytesRemaining, splitSize, 
                                    blkLocations[blkIndex].getHosts()));
           bytesRemaining -= splitSize;
@@ -272,8 +279,10 @@ public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
                      blkLocations[blkLocations.length-1].getHosts()));
         }
       } else if (length != 0) {
+        // 输入文件不可分割
         splits.add(new FileSplit(path, 0, length, blkLocations[0].getHosts()));
-      } else { 
+      } else {
+        // 文件为空
         //Create empty hosts array for zero length files
         splits.add(new FileSplit(path, 0, length, new String[0]));
       }
