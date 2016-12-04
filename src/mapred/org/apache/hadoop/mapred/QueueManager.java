@@ -46,7 +46,12 @@ import org.apache.hadoop.util.StringUtils;
  * properties are common to all schedulers, and those are handled by this
  * class. Schedulers might also associate several custom properties with 
  * queues. Where such a case exists, the queue name must be used to link 
- * the common properties with the scheduler specific ones.  
+ * the common properties with the scheduler specific ones.
+ *
+ * 暴露由Hadoop Map / Reduce框架维护的队列的信息的类。 Map / Reduce框架可以配置一个或多个队列，
+ * 具体取决于它配置的调度器。 虽然一些调度器只使用一个队列，但一些调度器支持多个队列。 可以使用各种属
+ * 性配置队列。 这些属性中的一些对于所有调度器是公共的，并且那些属性由这个类处理。 调度器还可以将多个
+ * 自定义属性与队列相关联。 在存在这种情况的情况下，必须使用队列名称来将公共属性与调度器特定的属性链接。
  */
 class QueueManager {
   

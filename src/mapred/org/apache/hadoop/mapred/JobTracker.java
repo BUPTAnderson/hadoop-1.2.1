@@ -317,7 +317,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     JobTracker result = null;
     while (true) {
       try {
+        // 实例化一个JobTracker对象, 包含各种初始化操作
         result = new JobTracker(conf, identifier);
+        // 将jobTracker对象设置给taskScheduler的taskTrackerManager
         result.taskScheduler.setTaskTrackerManager(result);
         break;
       } catch (VersionMismatch e) {
@@ -1965,6 +1967,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                 NetworkTopology.class), conf);
 
     // Create the scheduler
+    // 实例化taskScheduler, 默认是使用JobQueueTaskScheduler调度器
     Class<? extends TaskScheduler> schedulerClass
       = conf.getClass("mapred.jobtracker.taskScheduler",
           JobQueueTaskScheduler.class, TaskScheduler.class);
@@ -2159,7 +2162,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         LOG.warn("Retrying...");
       }
     }
-
+    // 启动taskScheduler, 参考JobQueueTaskScheduler的实现
     taskScheduler.start();
     
     //  Start the recovery after starting the scheduler
@@ -3575,6 +3578,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       UserGroupInformation ugi, Credentials ts, boolean recovered)
       throws IOException {
     // Check for safe-mode
+    // 检查是否在安全模式, 在安全模式则抛出异常.
     checkSafeMode();
     
     JobInfo jobInfo = null;
@@ -3586,6 +3590,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // job already running, don't start twice
         return jobs.get(jobId).getStatus();
       }
+      // 生成jobInfo对象
       jobInfo = new JobInfo(jobId, new Text(ugi.getShortUserName()),
           new Path(jobSubmitDir));
     }
@@ -3594,7 +3599,10 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // later (if at all)
     // Note: jobDir & jobInfo are owned by JT user since we are using
     // his fs object
+    // 判断job是否可以被recovered, 默认可以, 将jobInfo对象序列化到job-info文件中
     if (!recovered) {
+      // 获取保存jobInfo的文件: ${mapred.system.dir}/jobId,
+      // ${mapred.system.dir}的默认值为：/tmp/hadoop/mapred/system
       Path jobDir = getSystemDirectoryForJob(jobId);
       FileSystem.mkdirs(fs, jobDir, new FsPermission(SYSTEM_DIR_PERMISSION));
       FSDataOutputStream out = fs.create(getSystemFileForJob(jobId));
@@ -3610,6 +3618,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         ts = new Credentials();
       }
       generateAndStoreJobTokens(jobId, ts);
+      // 为job实例化一个JobInPregress对象, 这个对象将会对job以后的所有情况进行负责，如初始化，执行等
       job = new JobInProgress(this, this.conf, jobInfo, 0, ts);
     } catch (Exception e) {
       throw new IOException(e);
@@ -4702,6 +4711,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   /**
    * Start the JobTracker process.  This is used only for debugging.  As a rule,
    * JobTracker should be run as part of the DFS Namenode process.
+   *
+   * 在hadoop集群启动的时候会调用JobTracker的main方法将jobtracker进程启动。
    */
   public static void main(String argv[]
                           ) throws IOException, InterruptedException {
@@ -4709,7 +4720,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     try {
       if(argv.length == 0) {
+        // 构造JobTracker实例
         JobTracker tracker = startTracker(new JobConf());
+        // 启动, 包括taskScheduler的启动
         tracker.offerService();
       }
       else {

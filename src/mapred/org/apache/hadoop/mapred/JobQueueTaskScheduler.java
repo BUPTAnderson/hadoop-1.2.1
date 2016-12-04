@@ -47,6 +47,9 @@ class JobQueueTaskScheduler extends TaskScheduler {
   @Override
   public synchronized void start() throws IOException {
     super.start();
+    // 这个每个scheduler都会设置, taskTrackerManager就是jobtracker实例
+    // 这行程序的作用就是为jobTracker添加jobListener, 用来监听job的.
+    // 这行程序的内部就是调用jobTracker的jobInProgressListeners集合的add(listener)方法
     taskTrackerManager.addJobInProgressListener(jobQueueJobInProgressListener);
     eagerTaskInitializationListener.setTaskTrackerManager(taskTrackerManager);
     eagerTaskInitializationListener.start();
