@@ -317,7 +317,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     JobTracker result = null;
     while (true) {
       try {
-        // 实例化一个JobTracker对象, 包含各种初始化操作
+        // 实例化一个JobTracker对象, 包含taskScheduler的实例化以及各种初始化操作
         result = new JobTracker(conf, identifier);
         // 将jobTracker对象设置给taskScheduler的taskTrackerManager
         result.taskScheduler.setTaskTrackerManager(result);
@@ -1862,7 +1862,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   
   JobTracker(final JobConf conf, String identifier, Clock clock, QueueManager qm) 
   throws IOException, InterruptedException {
-    
+
+    // dfs.client.retry.policy.enabled设置为false
     initJTConf(conf);
     
     this.queueManager = qm;
@@ -1968,6 +1969,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
     // Create the scheduler
     // 实例化taskScheduler, 默认是使用JobQueueTaskScheduler调度器
+    // TaskScheduler的实现类的构造方法中都有一个设置JobListener的初始化操作
     Class<? extends TaskScheduler> schedulerClass
       = conf.getClass("mapred.jobtracker.taskScheduler",
           JobQueueTaskScheduler.class, TaskScheduler.class);
@@ -2162,7 +2164,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         LOG.warn("Retrying...");
       }
     }
-    // 启动taskScheduler, 参考JobQueueTaskScheduler的实现
+    // 将taskScheduler初始化时创建的JobListener添加到JobTracker的jobInProgressListeners集合中.
+    // 启动JobTracker, 参考JobQueueTaskScheduler的实现
     taskScheduler.start();
     
     //  Start the recovery after starting the scheduler
@@ -3559,6 +3562,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   public JobStatus submitJob(JobID jobId, String jobSubmitDir, Credentials ts)
       throws IOException {
     // Check for JobTracker operational state
+    // 检查JobTracker进程是否启动, JobTracker是在hadoop集群启动的时候启动的.
     checkJobTrackerState();
     
     return submitJob(jobId, jobSubmitDir, null, ts, false);
@@ -3601,7 +3605,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // his fs object
     // 判断job是否可以被recovered, 默认可以, 将jobInfo对象序列化到job-info文件中
     if (!recovered) {
-      // 获取保存jobInfo的文件: ${mapred.system.dir}/jobId,
+      // 获取保存jobInfo的文件路径: ${mapred.system.dir}/jobId,
       // ${mapred.system.dir}的默认值为：/tmp/hadoop/mapred/system
       Path jobDir = getSystemDirectoryForJob(jobId);
       FileSystem.mkdirs(fs, jobDir, new FsPermission(SYSTEM_DIR_PERMISSION));
@@ -3617,8 +3621,10 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       if (ts == null) {
         ts = new Credentials();
       }
+      // 将job tokens写入文件: ${mapred.system.dir}/jobId/jobToken
       generateAndStoreJobTokens(jobId, ts);
-      // 为job实例化一个JobInPregress对象, 这个对象将会对job以后的所有情况进行负责，如初始化，执行等
+      // 为job实例化一个JobInProgress对象, 这个对象将会对job以后的所有情况进行负责，如初始化，执行等
+      // jobInProgress 指的是运行中的job
       job = new JobInProgress(this, this.conf, jobInfo, 0, ts);
     } catch (Exception e) {
       throw new IOException(e);
@@ -3635,6 +3641,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     synchronized (this) {
       // check if queue is RUNNING
+      // 获取job的队列信息, 并判断相应的队列是否在运行中，不在则任务失败。
       String queue = job.getProfile().getQueueName();
       if (!queueManager.isRunning(queue)) {
         throw new IOException("Queue \"" + queue + "\" is not running");
@@ -3650,6 +3657,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
       // Check the job if it cannot run in the cluster because of invalid memory
       // requirements.
+      // 检查内存情况
       try {
         checkMemoryRequirements(job);
       } catch (IOException ioe) {
@@ -3657,6 +3665,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
 
       try {
+        // 检查任务提交情况
         this.taskScheduler.checkJobSubmission(job);
       } catch (IOException ioe){
         LOG.error("Problem in submitting job " + jobId, ioe);
@@ -3664,8 +3673,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
 
       // Submit the job
+      // 提交job
       JobStatus status;
       try {
+        // 将job(JobInProgress)加入到JobTracker的Map<JobID, JobInProgress> jobs中
+        // 并设置job的Listener, Listener是TaskScheduler中创建的
         status = addJob(jobId, job);
       } catch (IOException ioe) {
         LOG.info("Job " + jobId + " submission failed!", ioe);
@@ -3722,6 +3734,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     synchronized (jobs) {
       synchronized (taskScheduler) {
         jobs.put(job.getProfile().getJobID(), job);
+        // 这里的JobInProgressListener对象就是相应的taskScheduler的JobListener，这里为job添加了JobListener.
         for (JobInProgressListener listener : jobInProgressListeners) {
           listener.jobAdded(job);
         }
@@ -4720,7 +4733,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     try {
       if(argv.length == 0) {
-        // 构造JobTracker实例
+        // 构造JobTracker实例(包括构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
         JobTracker tracker = startTracker(new JobConf());
         // 启动, 包括taskScheduler的启动
         tracker.offerService();

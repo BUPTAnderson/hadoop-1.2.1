@@ -368,6 +368,7 @@ public class JobInProgress {
       JobInfo jobInfo, int rCount, Credentials ts) 
   throws IOException, InterruptedException {
     try {
+      // 重试次数
       this.restartCount = rCount;
       this.jobId = JobID.downgrade(jobInfo.getJobID());
       String url = "http://" + jobtracker.getJobTrackerMachine() + ":" 
@@ -398,12 +399,14 @@ public class JobInProgress {
         }});
       
       /** check for the size of jobconf **/
+      // jobSubmitDir目录中的job.xml文件大小检查, 文件大小不能超过5MB
       Path submitJobFile = JobSubmissionFiles.getJobConfPath(jobSubmitDir);
       FileStatus fstatus = fs.getFileStatus(submitJobFile);
       if (fstatus.getLen() > jobtracker.MAX_JOBCONF_SIZE) {
         throw new IOException("Exceeded max jobconf size: " 
             + fstatus.getLen() + " limit: " + jobtracker.MAX_JOBCONF_SIZE);
       }
+      // 将job.xml文件下载到本地 ${mapred.local.dir}/jobId.xml
       this.localJobFile = default_conf.getLocalPath(JobTracker.SUBDIR
           +"/"+jobId + ".xml");
       Path jobFilePath = JobSubmissionFiles.getJobConfPath(jobSubmitDir);
@@ -421,9 +424,11 @@ public class JobInProgress {
             jobId.toString(), desc);
         throw new IOException(desc);
       }
-      
+
+      // 设置job的优先级, 默认是normal
       this.priority = conf.getJobPriority();
       this.status.setJobPriority(this.priority);
+      // 获取配置的队列名, 默认队列名是default
       String queueName = conf.getQueueName();
       this.profile = new JobProfile(user, jobId, 
           jobFile, url, conf.getJobName(), queueName);
@@ -461,6 +466,7 @@ public class JobInProgress {
       // of each reduce is less than this value. If not
       // we fail the job. A value of -1 just means there is no
       // limit set.
+      // reduce输入限制, -1指没限制
       reduce_input_limit = -1L;
       this.maxLevel = jobtracker.getNumTaskCacheLevels();
       this.anyCacheLevel = this.maxLevel+1;
@@ -478,6 +484,7 @@ public class JobInProgress {
           jobInfo.getJobID(), ts, jobtracker.getConf());
       
       // Check task limits
+      // 检查map+reduce的任务数是否超出mapred.jobtracker.maxtasks.per.job设置的值，默认是-1，就是没有限制的意思
       checkTaskLimits();
     } finally {
       //close all FileSystems that was created above for the current user

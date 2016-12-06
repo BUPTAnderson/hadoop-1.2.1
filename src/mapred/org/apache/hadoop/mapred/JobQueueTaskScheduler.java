@@ -41,15 +41,17 @@ class JobQueueTaskScheduler extends TaskScheduler {
   private float padFraction;
   
   public JobQueueTaskScheduler() {
+    // 初始化一个JobInProgressListener对象
     this.jobQueueJobInProgressListener = new JobQueueJobInProgressListener();
+    // 如果是ReflectionUtils通过反射构造该类, 之后还会调用setConf方法.
   }
   
   @Override
   public synchronized void start() throws IOException {
     super.start();
-    // 这个每个scheduler都会设置, taskTrackerManager就是jobtracker实例
+    // taskTrackerManager就是jobtracker实例
     // 这行程序的作用就是为jobTracker添加jobListener, 用来监听job的.
-    // 这行程序的内部就是调用jobTracker的jobInProgressListeners集合的add(listener)方法
+    // 实际是调用jobTracker的jobInProgressListeners集合的add(listener)方法
     taskTrackerManager.addJobInProgressListener(jobQueueJobInProgressListener);
     eagerTaskInitializationListener.setTaskTrackerManager(taskTrackerManager);
     eagerTaskInitializationListener.start();
