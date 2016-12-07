@@ -336,6 +336,7 @@ public class JobInProgress {
     this.nonRunningReduces = new TreeSet<TaskInProgress>(failComparator);
     this.runningReduces = new LinkedHashSet<TaskInProgress>();
     this.resourceEstimator = new ResourceEstimator(this);
+    // 初始化是job的状态是PREP:prepare
     this.status = new JobStatus(jobid, 0.0f, 0.0f, JobStatus.PREP);
     this.status.setUsername(conf.getUser());
     // 获取配置的队列名, 默认队列名为default
@@ -780,7 +781,7 @@ public class JobInProgress {
 
     //
     // Create reduce tasks
-    // 创建指定数量的reduce task
+    // 创建指定数量的reduce task, 其数目由用户通过参数 mapred.reduce.tasks(默认为1)指定
     //
     this.reduces = new TaskInProgress[numReduceTasks];
     for (int i = 0; i < numReduceTasks; i++) {
@@ -803,7 +804,8 @@ public class JobInProgress {
     resourceEstimator.setThreshhold(completedMapsForReduceSlowstart);
     
     // create cleanup two cleanup tips, one map and one reduce.
-    // 创建2个cleanup task, 每个Job的MapTask和ReduceTask各对应一个, 是用来清理map task/reduce task
+    // 创建2个cleanup task, 每个Job的MapTask和ReduceTask各对应一个,
+    // 是用来清理map task/reduce task, 比如删除作业运行过程中用到的一些临时目录, 该任务运行成功后, 作业由Running状态变成succeeded状态
     cleanup = new TaskInProgress[2];
 
     // cleanup map tip. This map doesn't use any splits. Just assign an empty

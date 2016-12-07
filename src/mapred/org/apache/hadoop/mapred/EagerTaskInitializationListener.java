@@ -54,8 +54,10 @@ class EagerTaskInitializationListener extends JobInProgressListener {
             while (jobInitQueue.isEmpty()) {
               jobInitQueue.wait();
             }
+            // 取出JobInProgress
             job = jobInitQueue.remove(0);
           }
+          // 创建一个InitJob线程去初始化该JobInProgress
           threadPool.execute(new InitJob(job));
         } catch (InterruptedException t) {
           LOG.info("JobInitManagerThread interrupted.");
@@ -80,7 +82,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
       ttm.initJob(job);
     }
   }
-  
+  // 负责监听队列中有没有新的job加入, 如果有, 出发初始化线程new InitJob
   private JobInitManager jobInitManager = new JobInitManager();
   private Thread jobInitManagerThread;
   private List<JobInProgress> jobInitQueue = new ArrayList<JobInProgress>();
@@ -91,6 +93,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
   // JobTacker初始化JobQueueTaskScheduler后会调用JobQueueTaskScheduler的setConf,
   // setConf方法中会调用下面的构造方法初始化EagerTaskInitializationListener
   public EagerTaskInitializationListener(Configuration conf) {
+    // 设置可以同时初始化的job数量
     numThreads = conf.getInt("mapred.jobinit.threads", DEFAULT_NUM_THREADS);
     threadPool = Executors.newFixedThreadPool(numThreads);
   }
@@ -102,6 +105,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
 
   // JobTacker初始化时会调用JobQueueTaskScheduler的start方法, start方法中会依次调用
   // EagerTaskInitializationListener的setTaskTrackerManager和start方法
+  // 下面方法的作用是监听jobInitQueue是否有job加入
   public void start() throws IOException {
     this.jobInitManagerThread = new Thread(jobInitManager, "jobInitManager");
     jobInitManagerThread.setDaemon(true);
@@ -170,6 +174,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
 
   @Override
   public void jobUpdated(JobChangeEvent event) {
+    // 如果Job优先级（Priority）/开始时间发生变更，则对List<JobInProgress> jobInitQueue队列进行重新排序
     if (event instanceof JobStatusChangeEvent) {
       jobStateChanged((JobStatusChangeEvent)event);
     }

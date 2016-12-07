@@ -142,11 +142,13 @@ class JobQueueJobInProgressListener extends JobInProgressListener {
       JobStatusChangeEvent statusEvent = (JobStatusChangeEvent)event;
       JobSchedulingInfo oldInfo =  
         new JobSchedulingInfo(statusEvent.getOldStatus());
+      // 如果Job优先级（Priority）/开始时间发生变更，则对Map<JobSchedulingInfo, JobInProgress> jobQueue队列进行重新排序；
       if (statusEvent.getEventType() == EventType.PRIORITY_CHANGED 
           || statusEvent.getEventType() == EventType.START_TIME_CHANGED) {
         // Make a priority change
         reorderJobs(job, oldInfo);
-      } else if (statusEvent.getEventType() == EventType.RUN_STATE_CHANGED) {
+      } // 如果Job完成，则将Job从jobQueue队列中移除
+      else if (statusEvent.getEventType() == EventType.RUN_STATE_CHANGED) {
         // Check if the job is complete
         int runState = statusEvent.getNewStatus().getRunState();
         if (runState == JobStatus.SUCCEEDED

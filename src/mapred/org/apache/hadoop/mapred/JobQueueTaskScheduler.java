@@ -45,7 +45,8 @@ class JobQueueTaskScheduler extends TaskScheduler {
     this.jobQueueJobInProgressListener = new JobQueueJobInProgressListener();
     // 如果是ReflectionUtils通过反射构造该类, 之后还会调用setConf方法.
   }
-  
+
+  // JobTracker实例化后会调用offerService方法, 该方法中会调用下面的start方法
   @Override
   public synchronized void start() throws IOException {
     super.start();

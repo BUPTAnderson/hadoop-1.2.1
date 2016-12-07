@@ -2901,6 +2901,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // Update the listeners about the job
   // Assuming JobTracker is locked on entry.
   private void updateJobInProgressListeners(JobChangeEvent event) {
+    // 分别调用JobQueueJobInProgressListener和EagerTaskInitializationListener的jobUpdated方法
     for (JobInProgressListener listener : jobInProgressListeners) {
       listener.jobUpdated(event);
     }
@@ -3626,7 +3627,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // 将job tokens写入文件: ${mapred.system.dir}/jobId/jobToken
       generateAndStoreJobTokens(jobId, ts);
       // 为job实例化一个JobInProgress对象, 这个对象将会对job以后的所有情况进行负责，如初始化，执行等
-      // jobInProgress 指的是运行中的job
+      // jobInProgress 指的是运行中的job, client端提交的每一个job都会封装一个对应的JobInProgress对象
+      // JobTracker通过维护Map<JobID, JobInProgress> jobs来维护各个job的整个生命周期(创建执行清理)
       job = new JobInProgress(this, this.conf, jobInfo, 0, ts);
     } catch (Exception e) {
       throw new IOException(e);
@@ -3643,7 +3645,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     synchronized (this) {
       // check if queue is RUNNING
-      // 获取job的队列信息, 并判断相应的队列是否在运行中，不在则任务失败。
+      // 获取job的队列信息, 并判断相应的队列是否在运行中，没有运行的话则任务失败。
       String queue = job.getProfile().getQueueName();
       if (!queueManager.isRunning(queue)) {
         throw new IOException("Queue \"" + queue + "\" is not running");
@@ -3679,7 +3681,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       JobStatus status;
       try {
         // 将job(JobInProgress)加入到JobTracker的Map<JobID, JobInProgress> jobs中
-        // 并设置job的Listener, Listener是TaskScheduler中创建的, 该方法中会出发job执行
+        // 并设置job的Listener, Listener是TaskScheduler中创建的,
+        // 该方法中会为job添加JobInProgressListener并触发listener执行
         status = addJob(jobId, job);
       } catch (IOException ioe) {
         LOG.info("Job " + jobId + " submission failed!", ioe);
@@ -3739,7 +3742,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // 这里的JobInProgressListener对象就是相应的taskScheduler的JobListener，这里为job添加了JobListener.
         // jobAdded方法是一个trigger
         // 对应默认的JobQueueTaskScheduler, 包含JobQueueJobInProgressListener和EagerTaskInitializationListener
-        // 所以分别调用这两个类的jobAdded() 方法
+        // 所以分别调用这两个类的jobAdded() 方法, 这两个listener会把job加入到两个队列中
+        // EagerTaskInitializationListener把job加入到队列之后会触发job的初始化操作，具体见里面的实现
         for (JobInProgressListener listener : jobInProgressListeners) {
           listener.jobAdded(job);
         }
@@ -3928,6 +3932,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           new JobStatusChangeEvent(job, EventType.RUN_STATE_CHANGED, prevStatus, 
               newStatus);
         synchronized (JobTracker.this) {
+          // 更新Job相关队列的状态
           updateJobInProgressListeners(event);
         }
       }
