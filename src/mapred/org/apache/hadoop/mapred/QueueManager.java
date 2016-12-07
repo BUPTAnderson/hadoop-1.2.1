@@ -108,13 +108,14 @@ class QueueManager {
     
     // Get configured ACLs and state for each queue
     aclsEnabled = conf.getBoolean("mapred.acls.enabled", false);
-
+    // parserQueue方法中实例化配置的队列, 默认只有一个队列:default
     queues.putAll(parseQueues(conf)); 
   }
   
   synchronized private Map<String, Queue> parseQueues(Configuration conf) {
     Map<String, Queue> queues = new HashMap<String, Queue>();
     // First get the queue names
+    // 获取配置的队列, 没有的话默认队列名为default
     String[] queueNameValues = conf.getStrings("mapred.queue.names",
         new String[]{JobConf.DEFAULT_QUEUE_NAME});
     for (String name : queueNameValues) {
@@ -122,6 +123,7 @@ class QueueManager {
       if (queueACLs == null) {
         LOG.error("The queue, " + name + " does not have a configured ACL list");
       }
+      // 实例化各个队列, 加入到 HashMap<String,Queue> queues
       queues.put(name, new Queue(name, getQueueAcls(name, conf),
           getQueueState(name, conf), QueueMetrics.create(name, conf)));
     }

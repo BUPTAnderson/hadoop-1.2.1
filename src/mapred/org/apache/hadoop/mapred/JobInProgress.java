@@ -86,6 +86,7 @@ public class JobInProgress {
     
   JobProfile profile;
   JobStatus status;
+  // job.xml在hdfs上的保存路径:${mapreduce.job.dir}/job.xml
   String jobFile = null;
   Path localJobFile = null;
   final QueueMetrics queueMetrics;
@@ -174,7 +175,7 @@ public class JobInProgress {
             : failures;
       }
     };
-
+  // 初始化时设置为2
   private final int maxLevel;
 
   /**
@@ -337,7 +338,9 @@ public class JobInProgress {
     this.resourceEstimator = new ResourceEstimator(this);
     this.status = new JobStatus(jobid, 0.0f, 0.0f, JobStatus.PREP);
     this.status.setUsername(conf.getUser());
+    // 获取配置的队列名, 默认队列名为default
     String queueName = conf.getQueueName();
+    // 实例化profile对象
     this.profile = new JobProfile(conf.getUser(), jobid, "", "",
                                   conf.getJobName(), queueName);
     this.memoryPerMap = conf.getMemoryForMapTask();
@@ -686,6 +689,9 @@ public class JobInProgress {
   /**
    * Construct the splits, etc.  This is invoked from an async
    * thread so that split-computation doesn't block anyone.
+   *
+   * 该方法从HDFS读取该Job对应的splits信息，创建MapTask和ReduceTask
+   * （在JobTracker端维护的Task实际上是TaskInProgress）
    */
   public synchronized void initTasks() 
   throws IOException, KillInterruptedException, UnknownHostException {
@@ -727,16 +733,18 @@ public class JobInProgress {
     
     //
     // read input splits and create a map per a split
-    //
+    // 读取jobsplitmetainfo文件, 创建TaskSplitMetaInfo信息
     TaskSplitMetaInfo[] splits = createSplits(jobId);
     if (numMapTasks != splits.length) {
       throw new IOException("Number of maps in JobConf doesn't match number of " +
           "recieved splits for job " + jobId + "! " +
           "numMapTasks=" + numMapTasks + ", #splits=" + splits.length);
     }
+    // 设置map task数量
     numMapTasks = splits.length;
 
     // Sanity check the locations so we don't create/initialize unnecessary tasks
+    // 检查hosts的正确性，所以我们不创建/初始化不必要的任务
     for (TaskSplitMetaInfo split : splits) {
       NetUtils.verifyHostnames(split.getLocations());
     }
@@ -746,8 +754,10 @@ public class JobInProgress {
     this.queueMetrics.addWaitingMaps(getJobID(), numMapTasks);
     this.queueMetrics.addWaitingReduces(getJobID(), numReduceTasks);
 
+    // 每个split创建一个map task
     maps = new TaskInProgress[numMapTasks];
     for(int i=0; i < numMapTasks; ++i) {
+      // inputLength指job输入数据的大小
       inputLength += splits[i].getInputDataLength();
       maps[i] = new TaskInProgress(jobId, jobFile, 
                                    splits[i], 
@@ -757,6 +767,8 @@ public class JobInProgress {
         + ". Number of splits = " + splits.length);
 
     // Set localityWaitFactor before creating cache
+    // Capacity Scheduler调度器没有找到满足本地性要求的任务时， 跳过一定数目的调度机会
+    // 直到找到满足本地性要求的任务或者达到跳过次数上限（requiredSlots*localityWaitFactor）
     localityWaitFactor = 
       conf.getFloat(LOCALITY_WAIT_FACTOR, DEFAULT_LOCALITY_WAIT_FACTOR);
     if (numMapTasks > 0) { 
@@ -768,6 +780,7 @@ public class JobInProgress {
 
     //
     // Create reduce tasks
+    // 创建指定数量的reduce task
     //
     this.reduces = new TaskInProgress[numReduceTasks];
     for (int i = 0; i < numReduceTasks; i++) {
@@ -779,6 +792,7 @@ public class JobInProgress {
 
     // Calculate the minimum number of maps to be complete before 
     // we should start scheduling reduces
+    // mapred.reduce.slowstart.completed.maps默认是0.05，表示map task完成数目达到5%后，才开始让Reduce Task调度运行(开始reduce的shuffle)。
     completedMapsForReduceSlowstart = 
       (int)Math.ceil(
           (conf.getFloat("mapred.reduce.slowstart.completed.maps", 
@@ -789,30 +803,36 @@ public class JobInProgress {
     resourceEstimator.setThreshhold(completedMapsForReduceSlowstart);
     
     // create cleanup two cleanup tips, one map and one reduce.
+    // 创建2个cleanup task, 每个Job的MapTask和ReduceTask各对应一个, 是用来清理map task/reduce task
     cleanup = new TaskInProgress[2];
 
     // cleanup map tip. This map doesn't use any splits. Just assign an empty
     // split.
     TaskSplitMetaInfo emptySplit = JobSplit.EMPTY_TASK_SPLIT;
+    // map task对应的cleanup task
     cleanup[0] = new TaskInProgress(jobId, jobFile, emptySplit, 
             jobtracker, conf, this, numMapTasks, 1);
     cleanup[0].setJobCleanupTask();
 
     // cleanup reduce tip.
+    // reduce task对应的cleanup task
     cleanup[1] = new TaskInProgress(jobId, jobFile, numMapTasks,
                        numReduceTasks, jobtracker, conf, this, 1);
     cleanup[1].setJobCleanupTask();
 
     // create two setup tips, one map and one reduce.
+    // 创建2个setup task, setup task用来初始化MapTask/ReduceTask
     setup = new TaskInProgress[2];
 
     // setup map tip. This map doesn't use any split. Just assign an empty
     // split.
+    // map task 对应的setup task
     setup[0] = new TaskInProgress(jobId, jobFile, emptySplit, 
             jobtracker, conf, this, numMapTasks + 1, 1);
     setup[0].setJobSetupTask();
 
     // setup reduce tip.
+    // reduce task对应的setup task
     setup[1] = new TaskInProgress(jobId, jobFile, numMapTasks,
                        numReduceTasks + 1, jobtracker, conf, this, 1);
     setup[1].setJobSetupTask();
@@ -821,6 +841,7 @@ public class JobInProgress {
       jobInitKillStatus.initDone = true;
 
       // set this before the throw to make sure cleanup works properly
+      // 置task初始化完成标志， 之后该JobInProgress就可以被TaskScheduler进行调度了
       tasksInited = true;
 
       if(jobInitKillStatus.killed) {
@@ -836,8 +857,10 @@ public class JobInProgress {
             + " map tasks and " + numReduceTasks + " reduce tasks.");
   }
 
+  // 通过读取job.splitmetainfo文件构造TaskSplitMetaInfo[]
   TaskSplitMetaInfo[] createSplits(org.apache.hadoop.mapreduce.JobID jobId)
   throws IOException {
+    // readSplitMetaInfo方法中是具体的实现
     TaskSplitMetaInfo[] allTaskSplitMetaInfo =
       SplitMetaInfoReader.readSplitMetaInfo(jobId, fs, jobtracker.getConf(),
           jobSubmitDir);

@@ -40,6 +40,7 @@ public class SplitMetaInfoReader {
   public static JobSplit.TaskSplitMetaInfo[] readSplitMetaInfo(
       JobID jobId, FileSystem fs, Configuration conf, Path jobSubmitDir) 
   throws IOException {
+    // job.splitmetainfo文件大小不能大于10MB
     long maxMetaInfoSize = conf.getLong("mapreduce.jobtracker.split.metainfo.maxsize", 
         10000000L);
     Path metaSplitFile = JobSubmissionFiles.getJobSplitMetaFile(jobSubmitDir);
@@ -49,21 +50,25 @@ public class SplitMetaInfoReader {
           maxMetaInfoSize +". Aborting job " + jobId);
     }
     FSDataInputStream in = fs.open(metaSplitFile);
+    // 读取header
     byte[] header = new byte[JobSplit.META_SPLIT_FILE_HEADER.length];
     in.readFully(header);
     if (!Arrays.equals(JobSplit.META_SPLIT_FILE_HEADER, header)) {
       throw new IOException("Invalid header on split file");
     }
+    // 读取version
     int vers = WritableUtils.readVInt(in);
     if (vers != JobSplit.META_SPLIT_VERSION) {
       in.close();
       throw new IOException("Unsupported split version " + vers);
     }
+    // 读取分片数
     int numSplits = WritableUtils.readVInt(in); //TODO: check for insane values
     JobSplit.TaskSplitMetaInfo[] allSplitMetaInfo = 
       new JobSplit.TaskSplitMetaInfo[numSplits];
     final int maxLocations =
       conf.getInt(JobSplitWriter.MAX_SPLIT_LOCATIONS, Integer.MAX_VALUE);
+    // 读取每个分片的信息
     for (int i = 0; i < numSplits; i++) {
       JobSplit.SplitMetaInfo splitMetaInfo = new JobSplit.SplitMetaInfo();
       splitMetaInfo.readFields(in);
@@ -72,9 +77,11 @@ public class SplitMetaInfoReader {
         throw new IOException("Max block location exceeded for split: #"  + i +
               " splitsize: " + numLocations + " maxsize: " + maxLocations);
       }
+      // splitIndex包含split.log文件路径以及对应分片在split.log中的偏移量
       JobSplit.TaskSplitIndex splitIndex = new JobSplit.TaskSplitIndex(
           JobSubmissionFiles.getJobSplitFile(jobSubmitDir).toString(), 
           splitMetaInfo.getStartOffset());
+      // TaskSplitMetaInfo包含splitIndex, 对应split所在的host列表, split的长度
       allSplitMetaInfo[i] = new JobSplit.TaskSplitMetaInfo(splitIndex, 
           splitMetaInfo.getLocations(), 
           splitMetaInfo.getInputDataLength());

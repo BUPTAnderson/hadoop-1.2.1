@@ -76,6 +76,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
     }
     
     public void run() {
+      // 调用JobTracker的initJob方法
       ttm.initJob(job);
     }
   }
@@ -86,16 +87,21 @@ class EagerTaskInitializationListener extends JobInProgressListener {
   private ExecutorService threadPool;
   private int numThreads;
   private TaskTrackerManager ttm;
-  
+
+  // JobTacker初始化JobQueueTaskScheduler后会调用JobQueueTaskScheduler的setConf,
+  // setConf方法中会调用下面的构造方法初始化EagerTaskInitializationListener
   public EagerTaskInitializationListener(Configuration conf) {
     numThreads = conf.getInt("mapred.jobinit.threads", DEFAULT_NUM_THREADS);
     threadPool = Executors.newFixedThreadPool(numThreads);
   }
-  
+
+  // ttm实际为JobTracker
   public void setTaskTrackerManager(TaskTrackerManager ttm) {
     this.ttm = ttm;
   }
-  
+
+  // JobTacker初始化时会调用JobQueueTaskScheduler的start方法, start方法中会依次调用
+  // EagerTaskInitializationListener的setTaskTrackerManager和start方法
   public void start() throws IOException {
     this.jobInitManagerThread = new Thread(jobInitManager, "jobInitManager");
     jobInitManagerThread.setDaemon(true);
@@ -118,11 +124,14 @@ class EagerTaskInitializationListener extends JobInProgressListener {
    * We add the JIP to the jobInitQueue, which is processed 
    * asynchronously to handle split-computation and build up
    * the right TaskTracker/Block mapping.
+   *
+   * 我们将JIP添加到jobInitQueue，它被异步处理以处理分割计算并建立正确的TaskTracker / Block映射。
    */
   @Override
   public void jobAdded(JobInProgress job) {
     synchronized (jobInitQueue) {
       jobInitQueue.add(job);
+      // 对jobInitQueue按job的优先级进行排序
       resortInitQueue();
       jobInitQueue.notifyAll();
     }

@@ -22,6 +22,8 @@ import java.io.IOException;
 /**
  * A listener for changes in a {@link JobInProgress job}'s lifecycle in the
  * {@link JobTracker}.
+ *
+ * 用于JobTracker中job生命周期更改的侦听器。
  */
 abstract class JobInProgressListener {
 
@@ -42,6 +44,8 @@ abstract class JobInProgressListener {
    * Invoked when a job has been updated in the {@link JobTracker}.
    * This change in the job is tracker using {@link JobChangeEvent}.
    * @param event the event that tracks the change
+   *
+   * 在JobTracker中更新job时调用。 job中的此更改是使用JobChangeEvent的跟踪器。
    */
   public abstract void jobUpdated(JobChangeEvent event);
 }

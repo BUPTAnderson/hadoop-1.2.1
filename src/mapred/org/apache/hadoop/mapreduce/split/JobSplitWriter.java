@@ -197,9 +197,9 @@ public class JobSplitWriter {
   throws IOException {
     // write the splits meta-info to a file for the job tracker
     // job.splitmetainfo 内容:
-    // head|version|分片数|split_0.getlocations.length, split_0.getlocations, split_0.在split.log中的偏移量, split_0.length|
-    //                   |split_1.getlocations.length, split_1.getlocations, split_1.在split.log中的偏移量, split_1.length|
-    //                   |...
+    // header|version|分片数|split_0.getlocations.length, split_0.getlocations, split_0.在split.log中的偏移量, split_0.length|
+    //                     |split_1.getlocations.length, split_1.getlocations, split_1.在split.log中的偏移量, split_1.length|
+    //                     |...
     FSDataOutputStream out = 
       FileSystem.create(fs, filename, p);
     out.write(JobSplit.META_SPLIT_FILE_HEADER);

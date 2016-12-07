@@ -121,6 +121,7 @@ class JobQueueJobInProgressListener extends JobInProgressListener {
   
   @Override
   public void jobAdded(JobInProgress job) {
+    // 将job加入jobQueue
     jobQueue.put(new JobSchedulingInfo(job.getStatus()), job);
   }
 

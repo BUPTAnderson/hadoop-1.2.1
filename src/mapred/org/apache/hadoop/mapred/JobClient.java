@@ -971,7 +971,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           // 令牌
           populateTokenCache(jobCopy, jobCopy.getCredentials());
           // 创建${mapreduce.job.dir}目录, 并上传文件.在copyAndConfigureFiles中完成
-          // 除了job.xml其它目录的建立以及文件的上传都在该方法中完成.
+          // 除了job.xml和分片信息文件 其它目录的建立以及文件的上传都在该方法中完成.
           copyAndConfigureFiles(jobCopy, submitJobDir);
 
           // get delegation token for the dir 获取授权令牌

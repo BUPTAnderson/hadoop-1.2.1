@@ -317,7 +317,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     JobTracker result = null;
     while (true) {
       try {
-        // 实例化一个JobTracker对象, 包含taskScheduler的实例化以及各种初始化操作
+        // 实例化一个JobTracker对象, 包含QueueManager实例化,myInstrumentation的实例化, taskScheduler的实例化以及各种初始化操作
         result = new JobTracker(conf, identifier);
         // 将jobTracker对象设置给taskScheduler的taskTrackerManager
         result.taskScheduler.setTaskTrackerManager(result);
@@ -1482,6 +1482,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     Class<? extends JobTrackerInstrumentation> metricsInst =
         getInstrumentationClass(conf);
     LOG.debug("instrumentation class="+ metricsInst);
+    // 如果没有设置mapred.jobtracker.instrumentation, 返回JobTrackerMetricsSource实例
     if (metricsInst == null) {
       myInstrumentation = JobTrackerInstrumentation.create(this, conf);
       return;
@@ -1687,7 +1688,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
   JobTracker(final JobConf conf, String identifier, Clock clock) 
   throws IOException, InterruptedException { 
-
+    //实例化QueueManager, QueueManager中会实例化队列
     this(conf, identifier, clock, new QueueManager(new Configuration(conf)));
   } 
   
@@ -2015,7 +2016,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     infoServer.start();
     
     this.trackerIdentifier = identifier;
-
+    // 实例话myInstrumentation
     createInstrumentation();
     
     // The rpc/web-server ports can be ephemeral ports... 
@@ -2165,7 +2166,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
     // 将taskScheduler初始化时创建的JobListener添加到JobTracker的jobInProgressListeners集合中.
-    // 启动JobTracker, 参考JobQueueTaskScheduler的实现
+    // 启动JobTracker,  参考JobQueueTaskScheduler的start方法中会调用eagerTaskInitializationListener.start()
+    // eagerTaskInitializationListener启动线程, 对队列中的job进行监听, 详见EagerTaskInitializationListener的start()
     taskScheduler.start();
     
     //  Start the recovery after starting the scheduler
@@ -3665,7 +3667,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
 
       try {
-        // 检查任务提交情况
+        // 检查任务提交情况, 如果是默认的JobQueueTaskScheduler, 则该方法中没有进行任何操作.
         this.taskScheduler.checkJobSubmission(job);
       } catch (IOException ioe){
         LOG.error("Problem in submitting job " + jobId, ioe);
@@ -3677,7 +3679,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       JobStatus status;
       try {
         // 将job(JobInProgress)加入到JobTracker的Map<JobID, JobInProgress> jobs中
-        // 并设置job的Listener, Listener是TaskScheduler中创建的
+        // 并设置job的Listener, Listener是TaskScheduler中创建的, 该方法中会出发job执行
         status = addJob(jobId, job);
       } catch (IOException ioe) {
         LOG.info("Job " + jobId + " submission failed!", ioe);
@@ -3735,11 +3737,15 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       synchronized (taskScheduler) {
         jobs.put(job.getProfile().getJobID(), job);
         // 这里的JobInProgressListener对象就是相应的taskScheduler的JobListener，这里为job添加了JobListener.
+        // jobAdded方法是一个trigger
+        // 对应默认的JobQueueTaskScheduler, 包含JobQueueJobInProgressListener和EagerTaskInitializationListener
+        // 所以分别调用这两个类的jobAdded() 方法
         for (JobInProgressListener listener : jobInProgressListeners) {
           listener.jobAdded(job);
         }
       }
     }
+    // 计数器加一
     myInstrumentation.submitJob(job.getJobConf(), jobId);
     job.getQueueMetrics().submitJob(job.getJobConf(), jobId);
 
@@ -3902,6 +3908,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     return secretManager.renewToken(token, user);
   }  
 
+  // 提交job后, Listener会调用该方法
   public void initJob(JobInProgress job) {
     if (null == job) {
       LOG.info("Init on null job is not valid");
@@ -3911,6 +3918,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     try {
       JobStatus prevStatus = (JobStatus)job.getStatus().clone();
       LOG.info("Initializing " + job.getJobID());
+      // 调用JobInProgress的initTasks方法初始化该Job对应的Tasks, 即创建map和reduce task
       job.initTasks();
       // Inform the listeners if the job state has changed
       // Note : that the job will be in PREP state.
@@ -3936,7 +3944,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       job.getStatus().setFailureInfo(failureInfo);
       failJob(job);
     }
-	 }
+  }
 
   /**
    * Fail a job and inform the listeners. Other components in the framework 
@@ -4733,7 +4741,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     try {
       if(argv.length == 0) {
-        // 构造JobTracker实例(包括构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
+        // 构造JobTracker实例(包括实例化QueueManager,实例化 myInstrumentation, 构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
         JobTracker tracker = startTracker(new JobConf());
         // 启动, 包括taskScheduler的启动
         tracker.offerService();
