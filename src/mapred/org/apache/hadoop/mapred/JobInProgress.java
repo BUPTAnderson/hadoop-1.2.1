@@ -83,8 +83,9 @@ public class JobInProgress {
   }
 
   static final Log LOG = LogFactory.getLog(JobInProgress.class);
-    
+  // JobProfile描述了一个Job的基本信息, 具体结构参见JobProfile类
   JobProfile profile;
+  // JobStatus结构定义一个Job的当前状态信息, 具体结构参见JobStatus类
   JobStatus status;
   // job.xml在hdfs上的保存路径:${mapreduce.job.dir}/job.xml
   String jobFile = null;
@@ -104,6 +105,7 @@ public class JobInProgress {
   final int maxTaskFailuresPerTracker;
   
   // Counters to track currently running/finished/failed Map/Reduce task-attempts
+  // Counters包含了一组计数器，用来跟踪一个Job运行的信息
   int runningMapTasks = 0;
   int runningReduceTasks = 0;
   int finishedMapTasks = 0;
@@ -135,30 +137,40 @@ public class JobInProgress {
   protected Credentials tokenStorage;
 
   // NetworkTopology Node to the set of TIPs
+  // node上没有运行的MapTask列表信息
+  // 在调度MapTask之前，需要计算某个MapTask将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的MapTask的列表信息。
   Map<Node, List<TaskInProgress>> nonRunningMapCache;
   
   // Map of NetworkTopology Node to set of running TIPs
+  // JobTracker端维护了某个Node上，当前正在运行的MapTask列表的信息。
   Map<Node, Set<TaskInProgress>> runningMapCache;
 
   // A list of non-local, non-running maps
+  // JobTracker端维护的、非Local，并且还没有运行的MapTask的列表。
   final List<TaskInProgress> nonLocalMaps;
 
   // Set of failed, non-running maps sorted by #failures
+  // JobTracker端维护了失败的MapTask的信息，在该集合中的TaskInProgress基于失败次数降序排序。
+  // 当某个MapTask失败以后，就会被放到该集合中，后续重新调度MapTask运行时，会检索该集合。
   final SortedSet<TaskInProgress> failedMaps;
 
   // A set of non-local running maps
+  // JobTracker端维护的、 非Local、正在运行的MapTask保存在该数据结构中
   Set<TaskInProgress> nonLocalRunningMaps;
 
   // A list of non-running reduce TIPs
+  // JobTracker端维护的、没有运行的ReduceTask的列表。
   Set<TaskInProgress> nonRunningReduces;
 
   // A set of running reduce TIPs
   Set<TaskInProgress> runningReduces;
   
   // A list of cleanup tasks for the map task attempts, to be launched
+  // 为MapTask运行的cleanup task列表。
   List<TaskAttemptID> mapCleanupTasks = new LinkedList<TaskAttemptID>();
   
   // A list of cleanup tasks for the reduce task attempts, to be launched
+  // 为ReduceTask运行的cleanup task列表。
   List<TaskAttemptID> reduceCleanupTasks = new LinkedList<TaskAttemptID>();
 
   // keep failedMaps, nonRunningReduces ordered by failure count to bias
@@ -205,7 +217,10 @@ public class JobInProgress {
    */
   private static final int NON_LOCAL_CACHE_LEVEL = -1;
 
-  private int taskCompletionEventTracker = 0; 
+  private int taskCompletionEventTracker = 0;
+  // TaskCompletionEvent是用来跟踪Task完成事件的数据结构，该列表结构保存了TaskCompletionEvent。
+  // 当一个Task的状态为TaskStatus.State.SUCCEEDED/TaskStatus.State.FAILED/TaskStatus.State.KILLED的时候，
+  // 会创建一个对应的TaskCompletionEvent对象，根据该对象来更新JobTracker端维护的Task的状态信息。
   List<TaskCompletionEvent> taskCompletionEvents;
     
   // The maximum percentage of trackers in cluster added to the 'blacklist'.
@@ -232,6 +247,8 @@ public class JobInProgress {
   long finishTime;
 
   // First *task launch time
+  // 该firstTaskLaunchTimes数据结构保存了某个TaskType类型第一次运行的时间戳信息
+  // TaskType是枚举类型：MAP, REDUCE, JOB_SETUP, JOB_CLEANUP, TASK_CLEANUP
   final Map<TaskType, Long> firstTaskLaunchTimes =
       new EnumMap<TaskType, Long>(TaskType.class);
   
@@ -244,6 +261,8 @@ public class JobInProgress {
 
   private LocalFileSystem localFs;
   private FileSystem fs;
+  // 一个Job的ID字符串为job_200912121733_0002
+  // 对应的是JobID的toString()方法, job_jtIdentifier_id -> job_<JobTracker启动时间字符串>_<序号>
   private JobID jobId;
   volatile private boolean hasSpeculativeMaps;
   volatile private boolean hasSpeculativeReduces;
@@ -275,6 +294,9 @@ public class JobInProgress {
   private static final int MAX_FETCH_FAILURES_NOTIFICATIONS = 3;
   
   // Map of mapTaskId -> no. of fetch failures
+  // TaskTracker发送心跳的时候，会将TaskTracker的状态信息发送给JobTracker，状态信息通过TaskTrackerStatus表示，
+  // 该对象中包含了Task的报告信息TaskStatus。如果是在运行ReduceTask时，抓取MapTask输出的结果失败时，会在根据Task报告信息，
+  // 更新JobTracker端维护的mapTaskIdToFetchFailuresMap，记录了Task抓取MapTask输出失败的次数计数信息。
   private Map<TaskAttemptID, Integer> mapTaskIdToFetchFailuresMap =
     new TreeMap<TaskAttemptID, Integer>();
 
@@ -305,9 +327,11 @@ public class JobInProgress {
       this.numSlots = numSlots;
     }
   }
-
-  private Map<TaskTracker, FallowSlotInfo> trackersReservedForMaps = 
+  // FallowSlotInfo包含了空闲的slot信息，主要九个包含了空闲的slot的个数信息。
+  // 该数据结构维护了在某个TaskTracker上为MapTask运行所预留的空闲slot的信息。
+  private Map<TaskTracker, FallowSlotInfo> trackersReservedForMaps =
     new HashMap<TaskTracker, FallowSlotInfo>();
+  // 该数据结构维护了在某个TaskTracker上为ReduceTask运行所预留的空闲slot的信息。
   private Map<TaskTracker, FallowSlotInfo> trackersReservedForReduces = 
     new HashMap<TaskTracker, FallowSlotInfo>();
   private Path jobSubmitDir = null;

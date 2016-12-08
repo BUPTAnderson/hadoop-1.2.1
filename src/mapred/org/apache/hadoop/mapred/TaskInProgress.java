@@ -100,8 +100,11 @@ class TaskInProgress {
   
   // Map from task Id -> TaskTracker Id, contains tasks that are
   // currently runnings
+  // 维护了当前运行的Task, 该Task运行在哪个TaskTracker上
+  // task Id -> TaskTracker Id(TTID)
   private TreeMap<TaskAttemptID, String> activeTasks = new TreeMap<TaskAttemptID, String>();
   // All attempt Ids of this TIP
+  // 一个TaskInprogress包含的TaskAttemptID的集合
   private TreeSet<TaskAttemptID> tasks = new TreeSet<TaskAttemptID>();
   private JobConf conf;
   private Map<TaskAttemptID,List<String>> taskDiagnosticData =
@@ -114,13 +117,21 @@ class TaskInProgress {
 
   // Map from taskId -> TaskTracker Id, 
   // contains cleanup attempts and where they ran, if any
+  // 记录了某个cleanup task在哪个TaskTracker上, TAID -> TaskTracker Id(TTID)
   private TreeMap<TaskAttemptID, String> cleanupTasks =
     new TreeMap<TaskAttemptID, String>();
 
+  // 记录了执行Task失败的TaskTracker的host信息。
   private TreeSet<String> machinesWhereFailed = new TreeSet<String>();
+  // 满足如下3种条件的Task会被加入到该数据结构中:
+  // this.failed) || ((job.getStatus().getRunState() != JobStatus.RUNNING && (job.getStatus().getRunState() != JobStatus.PREP))
+  // isComplete() && !(isMapTask() && !jobSetup && !jobCleanup && isComplete(taskid))
+  // isCommitPending(taskid) && !shouldCommit(taskid)
+  // 该数据结构用来辅助判断，是否一个Task已经完成（成功/失败），需要被TaskTracker终止掉，这个需要JobTracker发送KillTaskAction指令，通知TaskTracker终止该Task运行。
   private TreeSet<TaskAttemptID> tasksReportedClosed = new TreeSet<TaskAttemptID>();
   
-  //list of tasks to kill, <taskid> -> <shouldFail> 
+  //list of tasks to kill, <taskid> -> <shouldFail>
+  // 记录了某个Task是否需要被Kill掉
   private TreeMap<TaskAttemptID, Boolean> tasksToKill = new TreeMap<TaskAttemptID, Boolean>();
   
   //task to commit, <taskattemptid>  

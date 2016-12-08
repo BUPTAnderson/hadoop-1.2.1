@@ -42,11 +42,17 @@ public class JobProfile implements Writable {
        });
   }
 
+  // 提交的该Job的所属用户名称，例如：shirdrn
   String user;
+  // 唯一标识一个Job的ID，例如：job_200912121733_0002
   final JobID jobid;
+  // 该Job所对应的配置文件，例如：/tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.xml
   String jobFile;
+  // 在Web UI页面上查看该Job信息的链接，例如：http://jobtracker.hadoopcluster.com:8080/jobdetails.jsp?jobid=job_200912121733_0002
   String url;
+  // 提交Job的用户为该Job设置的名称字符串，例如：ChainUserEventsJob
   String name;
+  // 提交的该Job所在的队列的名称，例如：default
   String queueName;
   
   /**

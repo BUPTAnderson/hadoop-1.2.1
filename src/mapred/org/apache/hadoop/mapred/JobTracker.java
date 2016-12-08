@@ -119,6 +119,8 @@ import org.mortbay.util.ajax.JSON;
  * JobTracker is the central location for submitting and 
  * tracking MR jobs in a network environment.
  *
+ * JobTracker通过在内存中维护有关Job、Task相关的所有信息，来跟踪他们运行、交互过程中所发生的数据交换，等等
+ *
  *******************************************************/
 public class JobTracker implements MRConstants, InterTrackerProtocol,
     JobSubmissionProtocol, TaskTrackerManager, RefreshUserMappingsProtocol,
@@ -223,7 +225,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private final TaskScheduler taskScheduler;
   private final List<JobInProgressListener> jobInProgressListeners =
     new CopyOnWriteArrayList<JobInProgressListener>();
-
+  // 通过ServicePlugin接口，可以基于任意的RPC协议暴露DataNode或NameNode的功能。
+  // 通过配置项mapreduce.jobtracker.plugins可以设置ServicePlugin，JobTracker启动的时候会加载初始化配置的ServicePlugin。
   private List<ServicePlugin> plugins;
   
   private static final LocalDirAllocator lDirAlloc = 

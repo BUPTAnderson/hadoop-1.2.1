@@ -73,17 +73,28 @@ public class JobStatus implements Writable, Cloneable {
     }
     return runStates[state];
   }
-  
+
+  // 唯一标识一个Job的ID，例如：job_200912121733_0002
   private JobID jobid;
+  // MapTask运行进度百分比
   private float mapProgress;
+  // ReduceTask运行进度百分比
   private float reduceProgress;
+  // cleanup task运行进度百分比
   private float cleanupProgress;
+  // setup task运行进度百分比
   private float setupProgress;
+  // Job运行状态：RUNNING = 1;SUCCEEDED = 2;FAILED = 3;PREP = 4;KILLED = 5;
   private int runState;
+  // job启动时间
   private long startTime;
+  // 提交的该Job的所属用户名称，例如：shirdrn
   private String user;
+  // Job优先级信息，是一个枚举类型，包含如下优先级：VERY_HIGH, HIGH, NORMAL, LOW, VERY_LOW
   private JobPriority priority;
+  // Job调度信息
   private String schedulingInfo="NA";
+  // 该Job设置的ACL（访问控制列表）列表信息
   private String failureInfo = "NA";
   
   /**

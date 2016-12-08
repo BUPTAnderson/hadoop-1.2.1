@@ -51,7 +51,8 @@ public class JobID extends org.apache.hadoop.mapred.ID
   // Jobid regex for various tools and framework components
   public static final String JOBID_REGEX = 
     JOB + SEPARATOR + "[0-9]+" + SEPARATOR + "[0-9]+";
-  
+
+  // JobTracker启动时间字符串
   private final Text jtIdentifier;
   
   protected static final NumberFormat idFormat = NumberFormat.getInstance();
@@ -64,6 +65,8 @@ public class JobID extends org.apache.hadoop.mapred.ID
    * Constructs a JobID object 
    * @param jtIdentifier jobTracker identifier
    * @param id job number
+   * jtIdentifier : JobTracker启动时间字符串
+   * id : 序号
    */
   public JobID(String jtIdentifier, int id) {
     super(id);
