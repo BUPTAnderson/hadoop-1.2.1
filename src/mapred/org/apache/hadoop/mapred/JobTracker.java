@@ -223,6 +223,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private Set<Node> nodesAtMaxLevel = 
     Collections.newSetFromMap(new ConcurrentHashMap<Node, Boolean>());
   private final TaskScheduler taskScheduler;
+  // JobTracker维护了一组JobInProgressListener监听器，在JobTracker运行过程中，发生某些事件会触发注册的JobInProgressListener的执行。
+  // 比如，JobClient提交一个Job，JobTracker端会触发对应的JobInProgressListener调用jobAdded()初始化该Job；
+  // 比如，Job执行过程中状态发生变更，会触发JobInProgressListener调用jobUpdated()执行；
+  // 比如，Job运行完成，会触发obInProgressListener调用jobRemoved()执行。
+  // JobTracker初始化时会创建TaskScheduler，而启动TaskScheduler的时候，会把TaskScheduler所维护的JobInProgressListener添加到jobInProgressListeners列表中。
   private final List<JobInProgressListener> jobInProgressListeners =
     new CopyOnWriteArrayList<JobInProgressListener>();
   // 通过ServicePlugin接口，可以基于任意的RPC协议暴露DataNode或NameNode的功能。
@@ -1538,46 +1543,77 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   //
 
   // All the known jobs.  (jobid->JobInProgress)
+  // JobTracker维护一个JobID->JobInProgress映射的列表，JobID标识一个提交的Job，JobInProgress是JobTracker端维护的Job的所有信息的数据结构。在如下情况下，会检索/操作该jobs数据结构：
+
+  // * JobClient提交Job的时候，会创建JobInProgress，并加入到jobs集合中
+  // * JobClient远程调用Kill掉指定Job的时候，会根据JobID从jobs中获取JobInProgress信息，并Kill掉该Job，更新状态信息
+  // * JobClient查询当前运行的所有Job信息时，会检索jobs列表
+  // * 在JobTracker端检索一个Job所维护的Task信息时，会根据JobInProgress所维护的数据结构获取到对应的Task的信息TaskInProgress
+  // * Job运行状态不为RUNNING，并且也不为PREP，并且完成时间早于当前时间，会将Job从jobs列表删除
+  // * JobTracker解析接收到的TaskTracker发送的心跳的过程中，会检索并更新jobs列表中的Job信息，找到可以分配给该TaskTracker的属于满足条件的Job所包含的Task
   Map<JobID, JobInProgress> jobs =  
     Collections.synchronizedMap(new TreeMap<JobID, JobInProgress>());
 
   // (user -> list of JobInProgress)
+  // 用来跟踪某个用户提交的需要运行的Job集合的数据结构。
+  // 当Job完成（success/failure/killed）后，会在JobTracker内存中保存一些Job，这些Job属于哪些用户的。
+  // 默认情况下会保存MAX_COMPLETE_USER_JOBS_IN_MEMORY=100个用户的已完成的Job，当超过该值时，会清理掉最早的用户以及对应的完成的Job信息。
+  // 可以通过配置项mapred.jobtracker.completeuserjobs.maximum来设置该值。
   TreeMap<String, ArrayList<JobInProgress>> userToJobsMap =
     new TreeMap<String, ArrayList<JobInProgress>>();
     
   // (trackerID --> list of jobs to cleanup)
+  // 用来跟踪某个TaskTracker上运行的Job集合的数据结构。
+  // 当一个Job已经运行完成，TaskTracker需要知道哪些运行在该节点上的Job已经完成，并等待通知进行清理，这时会在JobTracker端检索该Map，取出该TaskTracker对应的需要进行清理的Job的集合。
+  // 另外，还有一种情况，当JobTracker一段时间内没有收到TaskTracker发送的心跳报告，这时会将该TaskTracker对应的Job集合从trackerToJobsToCleanup中删除，
+  // 后续会重新调度这些运行在该有问题的TaskTracker上的Task（这些Task属于某些Job，JobTracker分配任务的单位是Task）。
   Map<String, Set<JobID>> trackerToJobsToCleanup = 
     new HashMap<String, Set<JobID>>();
   
   // (trackerID --> list of tasks to cleanup)
+  // 用来跟踪某个TaskTracker上运行的Task集合的数据结构。
+  // 当Job运行完成（成功或者失败）后，一个TaskTracker需要知道属于该Job的哪些Task运行在该TaskTracker上，需要对这些Task进行清理。
+  // JobTracker端会查询出这类Task，并通过心跳的响应，向对应的TaskTracker发送KillTaskAction指令，通知TaskTracker清理这些Task运行时生成的临时文件等。
   Map<String, Set<TaskAttemptID>> trackerToTasksToCleanup = 
     new HashMap<String, Set<TaskAttemptID>>();
   
   // All the known TaskInProgress items, mapped to by taskids (taskid->TIP)
+  // TaskAttemptID用来标识一个MapTask或一个ReduceTask，通过该数据结构可以根据TaskAttemptID获取到MapTask/ReduceTask的运行信息，也就是TaskInProgress对象。
+  // 当需要检索MapTask/ReduceTask，或者对JobTracker端所维护的该Task的状态信息进行更新的时候，需要通过该数据结构获取到。
   Map<TaskAttemptID, TaskInProgress> taskidToTIPMap =
     new TreeMap<TaskAttemptID, TaskInProgress>();
   // This is used to keep track of all trackers running on one host. While
   // decommissioning the host, all the trackers on the host will be lost.
+  // 一台主机上，可能运行着多个TaskTracker进程，该数据结构用来维护host到TaskTracker集合的映射关系。
+  // 如果一个host被加入了黑名单，则该host上面的所有TaskTracker都无法接收任务。
   Map<String, Set<TaskTracker>> hostnameToTaskTracker = 
     Collections.synchronizedMap(new TreeMap<String, Set<TaskTracker>>());
   
 
-  // (taskid --> trackerID) 
+  // (taskid --> trackerID)
+  // 维护TaskAttemptID到TaskTracker的映射关系，可以通过一个Task的ID获取到该Task运行在哪个TaskTracker上。
   TreeMap<TaskAttemptID, String> taskidToTrackerMap = new TreeMap<TaskAttemptID, String>();
 
   // (trackerID->TreeSet of taskids running at that tracker)
+  // 某个TaskTracker上都运行着哪些Task，通过该数据结构来维护这种映射关系。
   TreeMap<String, Set<TaskAttemptID>> trackerToTaskMap =
     new TreeMap<String, Set<TaskAttemptID>>();
 
   // (trackerID -> TreeSet of completed taskids running at that tracker)
+  // 在某个TaskTracker上都运行完成了哪些Task，通过该数据结构来维护这种映射关系。
   TreeMap<String, Set<TaskAttemptID>> trackerToMarkedTasksMap =
     new TreeMap<String, Set<TaskAttemptID>>();
 
   // (trackerID --> last sent HeartBeatResponse)
+  // TaskTracker会周期性地向JobTracker发送心跳报告，最近一次发送的心跳报告，JobTracker会给其一个响应，最后的这个响应的数据保存在该数据结构中。
   Map<String, HeartbeatResponse> trackerToHeartbeatResponseMap = 
     new TreeMap<String, HeartbeatResponse>();
 
-  // (hostname --> Node (NetworkTopology))
+  // ( task tracker hostname --> Node (NetworkTopology))
+  // JobTracker维护了一个网络拓扑结构（NetworkTopology），组成该拓扑结构的是一个一个的Node，每个Node都包含了网络位置信息、继承关系信息、名称等。
+  // 每个TaskTracker都是整个Hadoop集群的一个节点，通过该数据结构维护了TaskTracker在集群拓扑结构中相关信息。
+  // 比如，根据给定TaskTracker ID，从hostnameToNodeMap中检索出其对应的Node信息，在调度一个Job的MapTask运行时（MapTask运行具有Locality特性），
+  // 可以基于local、rack-local、off-switch的顺序优先选择前面的Node运行该MapTask。
   Map<String, Node> hostnameToNodeMap = 
     Collections.synchronizedMap(new TreeMap<String, Node>());
   
