@@ -2972,7 +2972,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    * 
    * The {@link JobTracker} processes the status information sent by the 
    * {@link TaskTracker} and responds with instructions to start/stop 
-   * tasks or jobs, and also 'reset' instructions during contingencies. 
+   * tasks or jobs, and also 'reset' instructions during contingencies.
+   * JobTracker与TaskTracker之间通过org.apache.hadoop.mapred.InterTrackerProtocol协议来进行通信，
+   * TaskTracker通过该接口进行远程调用实现Heartbeat消息的发送，协议方法定义如下所示：
+   *
+   * 通过该方法可以看出，最核心的Heartbeat报告数据都封装在TaskTrackerStatus对象中，JobTracker端会接收TaskTracker周期性地发送的心跳报告，
+   * 根据这些心跳信息来更新整个Hadoop集群中计算资源的状态/数量，以及Task的运行状态。
    */
   public synchronized HeartbeatResponse heartbeat(TaskTrackerStatus status, 
                                                   boolean restarted,
