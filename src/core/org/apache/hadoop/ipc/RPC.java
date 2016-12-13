@@ -566,6 +566,7 @@ public class RPC {
                   int numHandlers, boolean verbose, 
                   SecretManager<? extends TokenIdentifier> secretManager) 
         throws IOException {
+      // 进入Server
       super(bindAddress, port, Invocation.class, numHandlers, conf,
           classNameBase(instance.getClass().getName()), secretManager);
       this.instance = instance;

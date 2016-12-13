@@ -327,7 +327,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       try {
         // 实例化一个JobTracker对象, 包含QueueManager实例化,myInstrumentation的实例化, taskScheduler的实例化以及各种初始化操作
         result = new JobTracker(conf, identifier);
-        // 将jobTracker对象设置给taskScheduler的taskTrackerManager
+        // 将jobTracker对象设置给taskScheduler的taskTrackerManager对象
         result.taskScheduler.setTaskTrackerManager(result);
         break;
       } catch (VersionMismatch e) {
@@ -349,6 +349,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     if (result != null) {
       JobEndNotifier.startNotifier();
       MBeans.register("JobTracker", "JobTrackerInfo", result);
+      // 传进来的是false，所以这里不进行JobTracker的初始化操作，而是留到offerService()中进行。 到这里main()方法的JobTracker tracker = startTracker(new JobConf())完成，
+      // 接下来回到main方法，执行tracker.offerService()。
       if(initialize == true) {
         result.setSafeModeInternal(SafeModeAction.SAFEMODE_ENTER);
         result.initializeFilesystem();
@@ -1313,8 +1315,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     // checks if the job dir has the required files
     public void checkAndAddJob(FileStatus status) throws IOException {
+      // 前提：job默认是可恢复的，我们提交job的时候在submitjob方法中会把每个job的信息放在${mapred.system.dir}/jobID/job-info 和${mapred.system.dir}/jobID/jobToken 文件中，作用就是用来恢复失败的job
       String fileName = status.getPath().getName();
+      // 根据文件名是否是jobID以及在mapred.system.dir/jobID/下是否存在job-info 和 jobToken信息文件，都存在，则将该jobID添加到recoveryManager队列中，并设置shouldRecover = true，表示需要进行作业恢复。
       if (isJobNameValid(fileName) && isJobDirValid(JobID.forName(fileName))) {
+        // 将需要恢复的JobID加入到jobsToRecover集合中
         recoveryManager.addJobForRecovery(JobID.forName(fileName));
         shouldRecover = true; // enable actual recovery if num-files > 1
       }
@@ -1322,9 +1327,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     private boolean isJobDirValid(JobID jobId) throws IOException {
       boolean ret = false;
+      // ${mapred.system.dir}/jobID/job-info
       Path jobInfoFile = getSystemFileForJob(jobId);
+      // ${mapred.system.dir}/jobID/jobToken
       final Path jobTokenFile = getTokenFileForJob(jobId);
       JobConf job = new JobConf();
+      // 判断在mapred.system.dir/jobID/下是否存在job-info 和 jobToken信息文件
       if (jobTokenFile.getFileSystem(job).exists(jobTokenFile)
           && jobInfoFile.getFileSystem(job).exists(jobInfoFile)) {
         ret = true;
@@ -1426,6 +1434,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       int recovered = 0;
       long recoveryProcessStartTime = clock.getTime();
       if (!shouldRecover()) {
+        // 如果是false即不恢复，会清除jobsToRecover中的内容
         // clean up jobs structure
         jobsToRecover.clear();
         return;
@@ -1433,6 +1442,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
       LOG.info("Starting the recovery process for " + jobsToRecover.size()
           + " jobs ...");
+      // jobsToRecover队列是在jobTracker初始化时添加的(初始化recoveryManager 调用构造方法的时候会创建)，对其中每个作业进行恢复。
+      // 主要是读取job信息，然后调用JobTracker.submitJob(JobID.downgrade(token.getJobID()), token .getJobSubmitDir().toString(), ugi, ts, true)进行作业再次提交。
       for (JobID jobId : jobsToRecover) {
         LOG.info("Submitting job " + jobId);
         try {
@@ -1449,7 +1460,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               (jobTokenFile.getFileSystem(job).exists(jobTokenFile)) ?
             Credentials.readTokenStorageFile(jobTokenFile, job) : null;
 
-          // Re-submit job  
+          // Re-submit job
+          // 再次提交job
           final UserGroupInformation ugi = UserGroupInformation
               .createRemoteUser(token.getUser().toString());
           JobStatus status = ugi.doAs(new PrivilegedExceptionAction<JobStatus>() {
@@ -1774,7 +1786,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       throws IOException, InterruptedException {
     // initialize history parameters.
     final JobTracker jtFinal = this;
-    
+
+    // 下面是初始化JobHistory
     getMROwner().doAs(new PrivilegedExceptionAction<Boolean>() {
       @Override
       public Boolean run() throws Exception {
@@ -1785,6 +1798,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     });
 
     // start the recovery manager
+    // 初始化recoveryManager，用于作业恢复管理，即JobTracker启动时，恢复上次停止时正在运行的作业，并恢复各个任务的运行状态
     recoveryManager = new RecoveryManager();
     
     while (!Thread.currentThread().isInterrupted()) {
@@ -1809,13 +1823,16 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
         } catch (FileNotFoundException fnf) {} //ignore
         // Make sure that the backup data is preserved
+        // 列出mapred.system.dir参数指定的目录下所有的文件信息
         FileStatus[] systemDirData = fs.listStatus(this.systemDir);
         // Check if the history is enabled .. as we cant have persistence with 
         // history disabled
+        // 如果mapred.jobtracker.restart.recover=true，默认是false，且systemDir下存在文件时，调用recoveryManager.checkAndAddJob(status)判断是否需要进行作业恢复
         if (conf.getBoolean("mapred.jobtracker.restart.recover", false) 
             && systemDirData != null) {
           for (FileStatus status : systemDirData) {
             try {
+              // 判断是否需要进行作业恢复, 见方法具体实现
               recoveryManager.checkAndAddJob(status);
             } catch (Throwable t) {
               LOG.warn("Failed to add the job " + status.getPath().getName(), 
@@ -1824,13 +1841,16 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
           
           // Check if there are jobs to be recovered
+          // 判断是否需要进行作业恢复，需要则直接退出（这里还没有开始作业恢复，现在帙只是在做初始化相关的工作），不需要则会执行删除systemDir命令，并重新创建systemDir目录
           hasRestarted = recoveryManager.shouldRecover();
           if (hasRestarted) {
             break; // if there is something to recover else clean the sys dir
           }
         }
         LOG.info("Cleaning up the system directory");
+        // 删除systemDir
         fs.delete(systemDir, true);
+        // 新创建systemDir目录
         if (FileSystem.mkdirs(fs, systemDir, 
             new FsPermission(SYSTEM_DIR_PERMISSION))) {
           break;
@@ -1854,9 +1874,13 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
     
     // Same with 'localDir' except it's always on the local disk.
+    // 之后根据是否需要进行作业恢复，判断是否清除localDir目录，需要进行恢复则不清楚。
     if (!hasRestarted) {
       conf.deleteLocalFiles(SUBDIR);
     }
+
+    // 接下来是一些关于JobHistory和infoServer的操作，同时会启动调用jobHistoryServer = new JobHistoryServer(conf, aclsManager, infoServer);
+    // jobHistoryServer.start()，启动jobHistoryServer用于查看作业历史信息。
 
     // Initialize history DONE folder
     FileSystem historyFS = getMROwner().doAs(
@@ -1884,17 +1908,24 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
     if (JobHistoryServer.isEmbedded(conf)) {
       LOG.info("History server being initialized in embedded mode");
+      // 用于查看作业历史信息的Server
       jobHistoryServer = new JobHistoryServer(conf, aclsManager, infoServer);
+      // 启动jobHistoryServer
       jobHistoryServer.start();
       LOG.info("Job History Server web address: " + JobHistoryServer.getAddress(conf));
     }
 
     //initializes the job status store
+    // 新建completedJobStatusStore线程，用于将已完成的作业信息保存到hdfs中。
+    // 具体是在一个job完成之后调用completedJobStatusStore的store()方法将job信息保存到hdfs中，而该线程的run()方法是清除掉已保存到hdfs的job信息文件，
+    // 该功能的启用由mapred.job.tracker.persist.jobstatus.active参数决定，默认是关闭的。
     completedJobStatusStore = new CompletedJobStatusStore(conf, aclsManager);
     
     // Setup HDFS monitoring
     if (this.conf.getBoolean(
         JT_HDFS_MONITOR_ENABLE, DEFAULT_JT_HDFS_MONITOR_THREAD_ENABLE)) {
+      // hdfsMonitor用于监控hdfs是否正常，默认关闭该功能。
+      // 到这里initialize()方法完成了。回到offerService()方法
       hdfsMonitor = new HDFSMonitorThread(this.conf, this, this.fs);
       hdfsMonitor.start();
     }
@@ -1909,12 +1940,15 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     this.queueManager = qm;
     this.clock = clock;
     // Set ports, start RPC servers, setup security policy etc.
+    // 这句是获得配置文件mapred-site.xml中的mapred.job.tracker配置项的值 ip:端口号
+    // 并根据该值新建一个InetSocketAddress对象
     InetSocketAddress addr = getAddress(conf);
     this.localMachine = addr.getHostName();
     this.port = addr.getPort();
     // find the owner of the process
     // get the desired principal to load
     UserGroupInformation.setConfiguration(conf);
+    // 这句有点像是使用ssh登陆jobTracker所在主机，这里应该就是在搭建hadoop集群时需要设置ssh无密码访问的原因。
     SecurityUtil.login(conf, JT_KEYTAB_FILE, JT_USER_NAME, localMachine);
 
     long secretKeyInterval = 
@@ -1926,23 +1960,29 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     long tokenRenewInterval =
       conf.getLong(DELEGATION_TOKEN_RENEW_INTERVAL_KEY, 
                    DELEGATION_TOKEN_RENEW_INTERVAL_DEFAULT);
-    secretManager = 
+    // 新建一个MapReduce安全管理相关的类
+    secretManager =
       new DelegationTokenSecretManager(secretKeyInterval,
                                        tokenMaxLifetime,
                                        tokenRenewInterval,
                                        DELEGATION_TOKEN_GC_INTERVAL);
+    // 以后台线程的方法启动secretManager
     secretManager.startThreads();
        
     MAX_JOBCONF_SIZE = conf.getLong(MAX_USER_JOBCONF_SIZE_KEY, MAX_JOBCONF_SIZE);
     //
     // Grab some static constants
-    //
+    // 作业终止间隔
     TASKTRACKER_EXPIRY_INTERVAL = 
       conf.getLong("mapred.tasktracker.expiry.interval", 10 * 60 * 1000);
+    // 作业完成清除间隔
     RETIRE_JOB_INTERVAL = conf.getLong("mapred.jobtracker.retirejob.interval", 24 * 60 * 60 * 1000);
+    // 作业完成清除任务检查间隔
     RETIRE_JOB_CHECK_INTERVAL = conf.getLong("mapred.jobtracker.retirejob.check", 60 * 1000);
+    // 保留的已完成作业数量
     retiredJobsCacheSize =
              conf.getInt("mapred.job.tracker.retiredjobs.cache.size", 1000);
+    // 是否将完成的任务保留在hdfs中
     MAX_COMPLETE_USER_JOBS_IN_MEMORY = conf.getInt("mapred.jobtracker.completeuserjobs.maximum", 100);
 
     // values related to heuristic graylisting (a "fault" is a per-job
@@ -1992,23 +2032,32 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     this.conf = conf;
     JobConf jobConf = new JobConf(conf);
 
+    // 初始化一些有关内存的参数值
     initializeTaskMemoryRelatedConfig();
 
     // Read the hosts/exclude files to restrict access to the jobtracker.
+    // 涉及到两个参数：mapred.hosts和mapred.hosts.exclude，参考mapred-default.xml关于这两个参数的描述，
+    // 大致意思是这两个参数决定哪些node能够访问jobTracker以及哪些node不能访问jobTracker，null则无任何限制，
+    // 这是一种安全策略，可以防止非法机器访问jobTracker
     this.hostsReader = new HostsFileReader(conf.get("mapred.hosts", ""),
                                            conf.get("mapred.hosts.exclude", ""));
+
+    // 新建一个作业级别和队列级别的管理和访问权限控制对象，所以将queueManager对象传递给aclsManager，同时new一个JobACLsManager对象，
+    // queueManager负责队列级别的管理和访问权限控制，而JobACLsManager对象负责作业级别的管理和访问权限控制。
+    // 作业级别权限包括VIEW_JOB和MODIFY_JOB，队列级别的权限包括ADMINISTER_JOBS和SUBMIT_JOB
     aclsManager = new ACLsManager(conf, new JobACLsManager(conf), queueManager);
 
     LOG.info("Starting jobtracker with owner as " +
         getMROwner().getShortUserName());
 
-    // Create network topology
+    // Create network topology 构建网络拓扑结构
     clusterMap = (NetworkTopology) ReflectionUtils.newInstance(
             conf.getClass("net.topology.impl", NetworkTopology.class,
                 NetworkTopology.class), conf);
 
-    // Create the scheduler
-    // 实例化taskScheduler, 默认是使用JobQueueTaskScheduler调度器
+    // Create the taskScheduler
+    // 实例化taskScheduler, 具体使用的任务调度方案则是由mapred.jobtracker.taskScheduler设置，
+    // 默认是使用JobQueueTaskScheduler调度器，也就是遵循FIFO原则的作业调度器。同时hadoop还自带了FairScheduler和CapacityScheduler两个调度器
     // TaskScheduler的实现类的构造方法中都有一个设置JobListener的初始化操作
     Class<? extends TaskScheduler> schedulerClass
       = conf.getClass("mapred.jobtracker.taskScheduler",
@@ -2016,6 +2065,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     taskScheduler = (TaskScheduler) ReflectionUtils.newInstance(schedulerClass, conf);
     
     // Set service-level authorization security policy
+    // 服务级别的安全策略，默认是关闭的
     if (conf.getBoolean(
           ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG, false)) {
       PolicyProvider policyProvider = 
@@ -2025,8 +2075,10 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               conf));
         ServiceAuthorizationManager.refresh(conf, policyProvider);
     }
-    
+
+    // 这个mapred.job.tracker.handler.count决定jobTracker启动多少个handler用来接收rpc请求，默认是10，这里是一个hadoop的优化点。
     int handlerCount = conf.getInt("mapred.job.tracker.handler.count", 10);
+    // 获得一个Server对象(RPC Server)，在新建Server对象时会新建一个listener = new Listener()和一个responder = new Responder()对象，用于监听rpc请求和用于发送rpc请求结果。
     this.interTrackerServer = 
       RPC.getServer(this, addr.getHostName(), addr.getPort(), handlerCount, 
           false, conf, secretManager);
@@ -2039,7 +2091,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
 
-    String infoAddr = 
+    String infoAddr =
       NetUtils.getServerAddress(conf, "mapred.job.tracker.info.bindAddress",
                                 "mapred.job.tracker.info.port",
                                 "mapred.job.tracker.http.address");
@@ -2047,6 +2099,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     String infoBindAddress = infoSocAddr.getHostName();
     int tmpInfoPort = infoSocAddr.getPort();
     this.startTime = clock.getTime();
+    // 这里是新建一个infoServer线程用于web服务的，也就是将集群的一些信息(Job, Task, TaskTracker相关信息)显示到web页面，端口是50030。
     infoServer = new HttpServer("job", infoBindAddress, tmpInfoPort, 
         tmpInfoPort == 0, conf, aclsManager.getAdminsAcl());
     infoServer.setAttribute("job.tracker", this);
@@ -2068,7 +2121,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     this.conf.set("mapred.job.tracker.http.address", 
         infoBindAddress + ":" + this.infoPort); 
     LOG.info("JobTracker webserver: " + this.infoServer.getPort());
-    
+
+    // 新建一个dnsToSwitchMapping用于构造集群的网络拓扑结构
     this.dnsToSwitchMapping = ReflectionUtils.newInstance(
         conf.getClass("topology.node.switch.mapping.impl", ScriptBasedMapping.class,
             DNSToSwitchMapping.class), conf);
@@ -2076,7 +2130,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         NetworkTopology.DEFAULT_HOST_LEVEL);
     this.isNodeGroupAware = conf.getBoolean(
             "mapred.jobtracker.nodegroup.aware", false);
-    
+
+    // 插件，但是没有实现，应该目前是一个扩展点吧。
     plugins = conf.getInstances("mapreduce.jobtracker.plugins",
         ServicePlugin.class);
     for (ServicePlugin p : plugins) {
@@ -2088,7 +2143,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             + " could not be started", t);
       }
     }
-    
+    // 设置JobTracker初始化完成。到这里整个JobTracker的构造函数结束了
+    // 总结一下，主要对一些重要的对象进行了初始化，有secretManager/aclsManager/taskScheduler/interTrackerServer/infoServicer。
     this.initDone.set(conf.getBoolean(JT_INIT_CONFIG_KEY_FOR_TESTS, true));
   }
 
@@ -2178,23 +2234,30 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
   /**
    * Run forever
+   * 该方法主要是初始化并启动一些重要线程，以及进行作业恢复和启动taskScheduler。   offerService()结束main()也就结束了
    */
   public void offerService() throws InterruptedException, IOException {
-    // start the inter-tracker server 
+    // start the inter-tracker server
+    // 启动interTrackerServe(RPC server), 进入start方法查看具体实现
     this.interTrackerServer.start();
     
     // Initialize the JobTracker FileSystem within safemode
+    // 设置为safemode进行FileSystem的初始化，初始化完成后离开safemode
     setSafeModeInternal(SafeModeAction.SAFEMODE_ENTER);
     initializeFilesystem();
     setSafeModeInternal(SafeModeAction.SAFEMODE_LEAVE);
     
     // Initialize JobTracker
+    // 初始化JobTracker，里面包括很多东西，进入该方法查看具体过程
     initialize();
     
     // Prepare for recovery. This is done irrespective of the status of restart
     // flag.
+    // 开始进行作业恢复
     while (true) {
       try {
+        // 更新恢复次数
+        // 具体逻辑：第一次恢复向mapred.system.dir/jobtracker.info文件中写入0，之后每次进行恢复都会对文件中的值进行+1操作。该方法是用来记录恢复次数。
         recoveryManager.updateRestartCount();
         break;
       } catch (IOException ioe) {
@@ -2211,24 +2274,36 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     //  Start the recovery after starting the scheduler
     try {
+      // 进行作业恢复， 具体实现进入该方法查看
       recoveryManager.recover();
     } catch (Throwable t) {
       LOG.warn("Recovery manager crashed! Ignoring.", t);
     }
     // refresh the node list as the recovery manager might have added 
     // disallowed trackers
+    // 更新节点信息， 具体实现进入该方法查看
     refreshHosts();
-    
+
+    // 下面分别启动expireTrackersThread，retireJobsThread，expireLaunchingTaskThread，completedJobStatusStore线程。
+
+    // expireTrackersThread：该线程用于发现和清除死掉的TaskTracker。
+    // 主要根据一个TaskTracker自上一次的心跳汇报以来在TASKTRACKER_EXPIRY_INTERVAL时间（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms）内未汇报心跳，则将其清除
     this.expireTrackersThread = new Thread(this.expireTrackers,
                                           "expireTrackers");
     this.expireTrackersThread.start();
+    // retireJobsThread：该线程用于清除已完成的作业信息。主要清除那些状态为SUCCEEDED、FAILED、KILLED的job，
+    // 并且是在RETIRE_JOB_INTERVAL时间间隔（由mapred.jobtracker.retirejob.interval参数设置，默认是24 * 60 * 60 * 1000，单位ms）之前完成；
+    // 或者用户保存的总完成job数超过MAX_COMPLETE_USER_JOBS_IN_MEMORY（由mapred.jobtracker.completeuserjobs.maximum参数设置，默认是100）也会将已完成的作业进行清除
     this.retireJobsThread = new Thread(this.retireJobs, "retireJobs");
     this.retireJobsThread.start();
+    // expireLaunchingTaskThread：该线程用于发现已经分配给某个TaskTracker但一直未汇报信息的任务。
+    // 主要是根据每个TaskAttemptID启动的时间与当前时间的间隔是否大于TASKTRACKER_EXPIRY_INTERVAL（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms）决定。
     expireLaunchingTaskThread.start();
 
     if (completedJobStatusStore.isActive()) {
       completedJobsStoreThread = new Thread(completedJobStatusStore,
                                             "completedjobsStore-housekeeper");
+      // completedJobsStoreThread：该线程用于将已完成的作业信息保存到hdfs中。
       completedJobsStoreThread.start();
     }
 
@@ -3654,6 +3729,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     if (!recovered) {
       // 获取保存jobInfo的文件路径: ${mapred.system.dir}/jobId,
       // ${mapred.system.dir}的默认值为：/tmp/hadoop/mapred/system
+      // job-info信息保存在 ${mapred.system.dir}/jobId/job-info
       Path jobDir = getSystemDirectoryForJob(jobId);
       FileSystem.mkdirs(fs, jobDir, new FsPermission(SYSTEM_DIR_PERMISSION));
       FSDataOutputStream out = fs.create(getSystemFileForJob(jobId));
@@ -4692,6 +4768,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private synchronized void refreshHosts() throws IOException {
     // Reread the config to get mapred.hosts and mapred.hosts.exclude filenames.
     // Update the file names and refresh internal includes and excludes list
+    // 由hostsReader重新读取mapred.hosts以及mapred.hosts.exclude值，并添加到相应队列中，然后遍历现有的taskTrackers节点，
+    // 把不在mapred.hosts或者在mapred.hosts.exclude中的节点从hostnameToTaskTracker中移除
     LOG.info("Refreshing hosts information");
     Configuration conf = new Configuration();
 
@@ -4790,9 +4868,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     
     try {
       if(argv.length == 0) {
-        // 构造JobTracker实例(包括实例化QueueManager,实例化 myInstrumentation, 构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
+        // 构造JobTracker对象(包括实例化QueueManager,实例化 myInstrumentation, 构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
         JobTracker tracker = startTracker(new JobConf());
-        // 启动, 包括taskScheduler的启动
+        // 启动JobTracker内部一些重要的服务或者线程, 包括taskScheduler的启动
         tracker.offerService();
       }
       else {

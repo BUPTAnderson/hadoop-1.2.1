@@ -1536,12 +1536,14 @@ public abstract class Server {
     this.isSecurityEnabled = UserGroupInformation.isSecurityEnabled();
     
     // Start the listener here and let it bind to the port
+    // 新建一个Listener用于监听rpc请求
     listener = new Listener();
     this.port = listener.getAddress().getPort();    
     this.rpcMetrics = RpcInstrumentation.create(serverName, this.port);
     this.tcpNoDelay = conf.getBoolean("ipc.server.tcpnodelay", false);
 
     // Create the responder here
+    // 新建一个responder用于发送rpc请求
     responder = new Responder();
     
     if (isSecurityEnabled) {
@@ -1630,6 +1632,8 @@ public abstract class Server {
 
   /** Starts the service.  Must be called before any calls will be handled. */
   public synchronized void start() {
+    // 启动responder和listener，同时创建handlerCount个handlers对象并启动，handlerCount前面在JobTracker构造函数中提到，
+    // 由mapred.job.tracker.handler.count参数决定，默认是10，这里涉及到RPC内部机制
     responder.start();
     listener.start();
     handlers = new Handler[handlerCount];

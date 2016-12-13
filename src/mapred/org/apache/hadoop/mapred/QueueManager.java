@@ -103,12 +103,25 @@ class QueueManager {
    * @param conf Configuration object where queue configuration is specified.
    */
   public QueueManager(Configuration conf) {
+    // 检查在mapred-site.xml, hdfs-site.xml, core-site.xml中是否出现有关queue的配置, 有则发出警告。
+    // 通常queue配置在mapred-site.xml中：
+    // <name>mapred.queue.names</name>
+    // <value>default,queue1,queue2,queue3,queue4</value>
     checkDeprecation(conf);
+    // 为configuration添加mapred-queue-acls.xml配置文件, 这个才是正确配置有关queue的参数的地方,
+    // 所有有关queue的配置都应放入该文件, 主要有两个配置项：
+    // mapred.queue.队列名.acl-submit-job 值为可以向该队列提交jobs的用户或group
+    // mapred.queue.队列名.acl-administer-jobs 值为可以查看job details， kill job或modify job's priority的用户或group
+    // 每一个队列都可以配置这两项
     conf.addResource(QUEUE_ACLS_FILE_NAME);
     
     // Get configured ACLs and state for each queue
+    // 读取配置文件判断是否启用acl功能, 即访问控制功能, 默认是false
+    // 要使mapred-queue-acls.xml配置文件生效，该参数参数要配置为true， 该参数在mapred-site.xml中配置：
+    // <name>mapred.acls.enabled</name>
+    //  <value>true</value>
     aclsEnabled = conf.getBoolean("mapred.acls.enabled", false);
-    // parserQueue方法中实例化配置的队列, 默认只有一个队列:default
+    // parserQueue方法中实例化配置的各个队列, 如果没有配置队列的话，默认添加一个默认的队列:default
     queues.putAll(parseQueues(conf)); 
   }
   
@@ -119,11 +132,15 @@ class QueueManager {
     String[] queueNameValues = conf.getStrings("mapred.queue.names",
         new String[]{JobConf.DEFAULT_QUEUE_NAME});
     for (String name : queueNameValues) {
+      // 针对每个队列名获取包含下面两项的map
+      // <"mapred.queue.队列名.acl-submit-job", new AccessControlList("配置项mapred.queue.队列名.acl-submit-job对应的value")>
+      // <"mapred.queue.队列名.acl-administer-jobs", new AccessControlList("配置项mapred.queue.队列名.acl-administer-jobs对应的value")>
       Map queueACLs = getQueueAcls(name, conf);
       if (queueACLs == null) {
         LOG.error("The queue, " + name + " does not have a configured ACL list");
       }
-      // 实例化各个队列, 加入到 HashMap<String,Queue> queues
+      // 实例化各个队列, 加入到 HashMap<"队列名",Queue> queues
+      // getQueueState默认返回的是RUNNING
       queues.put(name, new Queue(name, getQueueAcls(name, conf),
           getQueueState(name, conf), QueueMetrics.create(name, conf)));
     }
@@ -293,6 +310,11 @@ class QueueManager {
     if (queues != null) {
       for (String queue : queues) {
         for (QueueACL oper : QueueACL.values()) {
+          // 针对每个队列名，检查检查mapred-site.xml, hdfs-site.xml, core-site.xml中 有没有下面2个配置， 有的话输出警告信息
+          // mapred.queue.队列名.acl-submit-job
+          // mapred.queue.队列名.acl-administer-jobs
+          // 这两个配置信息应该配置在mapred-queue-acls.xml中，看QueueManager的构造方法中对该方法的引用，执行完该方法后才加载mapred-queue-acls.xml文件。
+          // 这里其实就是告诉用户不应该在mapred-site.xml和hadoop-site.xm中配置这两个参数，应该在mapred-queue-acls.xml中进行配置
           String aclString =
             conf.get(toFullPropertyName(queue, oper.getAclName()));
           if (aclString != null) {
@@ -322,6 +344,7 @@ class QueueManager {
 
   /** Parse state of the queue from the configuration. */
   Queue.QueueState getQueueState(String name, Configuration conf) {
+    // 没有配置的话默认返回RUNNING
     return conf.getEnum(
         toFullPropertyName(name, QueueManager.QUEUE_STATE_SUFFIX),
         Queue.QueueState.RUNNING);
