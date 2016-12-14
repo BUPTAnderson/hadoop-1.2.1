@@ -32,6 +32,8 @@ import java.util.*;
  * unique TaskTracker it knows about.
  *
  * This is NOT a public interface!
+ *
+ * TaskTrackerStatus是MapReduce原语。 在TaskTracker上保留信息。 JobTracker为它所知道的每个唯一TaskTracker维护一组最新的TaskTrackerStatus对象
  **************************************************/
 public class TaskTrackerStatus implements Writable {
   public static final Log LOG = LogFactory.getLog(TaskTrackerStatus.class);
@@ -44,16 +46,26 @@ public class TaskTrackerStatus implements Writable {
        });
   }
 
+  // TaskTracker名称
   String trackerName;
+  // TaskTracker主机名
   String host;
+  // TaskTracker对外的HTTP端口号
   int httpPort;
+  // 该TaskTracker上已经失败的任务总数
   int taskFailures;
+  //
   int dirFailures;
+  // 正在运行的各个任务运行状态
   List<TaskStatus> taskReports;
-    
+
+  // 上次汇报心跳的时间
   volatile long lastSeen;
+  // Map slot总数，即允许同时运行的Map Task总数，由参数 mapred.tasktracker.map.tasks.maximum 设定
   private int maxMapTasks;
+  // Reduce slot总数
   private int maxReduceTasks;
+  // TaskTracker健康状态
   private TaskTrackerHealthStatus healthStatus;
    
   public static final int UNAVAILABLE = -1;
@@ -337,7 +349,8 @@ public class TaskTrackerStatus implements Writable {
       setCpuUsage(in.readFloat());
     }
   }
-  
+
+  // TaskTracker资源（内存，CPU等）信息
   private ResourceStatus resStatus;
   
   /**

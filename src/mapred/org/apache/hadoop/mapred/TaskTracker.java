@@ -1938,12 +1938,14 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
   /**
    * Build and transmit the heart beat to the JobTracker
+   * 构建并发送heart beat给JobTracker
    * @param now current time
    * @return false if the tracker was unknown
    * @throws IOException
    */
   HeartbeatResponse transmitHeartBeat(long now) throws IOException {
     // Send Counters in the status once every COUNTER_UPDATE_INTERVAL
+    // 根据sendCounters的间隔判断此次心跳是否发送计算器信息。
     boolean sendCounters;
     if (now > (previousUpdate + COUNTER_UPDATE_INTERVAL)) {
       sendCounters = true;
@@ -1958,8 +1960,11 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // if so then build the heartbeat information for the JobTracker;
     // else resend the previous status information.
     //
+    // 此处根据status变量是否为null，判断上次的心跳是否成功发送。tatus!=null，则表示上次的心跳尚未发送，
+    // 所以直接将上次收集到的TT状态信息（封装在status中）发送给JT；相反，status==null，则表示上次心跳已完成，重新收集TT的状态信息，同样封装到status中。
     if (status == null) {
       synchronized (this) {
+        // 构造TaskTrackerStatus
         status = new TaskTrackerStatus(taskTrackerName, localHostname, 
                                        httpPort, 
                                        cloneAndResetRunningTaskStatuses(

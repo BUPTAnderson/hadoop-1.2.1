@@ -2123,6 +2123,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     LOG.info("JobTracker webserver: " + this.infoServer.getPort());
 
     // 新建一个dnsToSwitchMapping用于构造集群的网络拓扑结构
+    // 该接口定义了将DNS名称或者节点IP地址转换成网络位置的规则。hadoop以层次树的方式定义节点的网络位置，并依据该位置存取数据或者调度任务。
     this.dnsToSwitchMapping = ReflectionUtils.newInstance(
         conf.getClass("topology.node.switch.mapping.impl", ScriptBasedMapping.class,
             DNSToSwitchMapping.class), conf);
@@ -2287,23 +2288,31 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 下面分别启动expireTrackersThread，retireJobsThread，expireLaunchingTaskThread，completedJobStatusStore线程。
 
     // expireTrackersThread：该线程用于发现和清除死掉的TaskTracker。
-    // 主要根据一个TaskTracker自上一次的心跳汇报以来在TASKTRACKER_EXPIRY_INTERVAL时间（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms）内未汇报心跳，则将其清除
+    // 主要根据一个TaskTracker自上一次的心跳汇报以来在TASKTRACKER_EXPIRY_INTERVAL时间（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms, 即10分钟）内未汇报心跳，则将其清除
+    // 即如果某个TaskTracker在10分钟内未汇报心跳，则JobTracker认为它已经死掉，并将它的相关信息从数据结构trackerToJobsToCleanup, trackerToTasksToCleanup, trackerToTaskMap, trackerToMarkedTasksMap
+    // 中清除，同时将正在运行的任务状态标注为KILLED_UNCLEAN
     this.expireTrackersThread = new Thread(this.expireTrackers,
                                           "expireTrackers");
     this.expireTrackersThread.start();
-    // retireJobsThread：该线程用于清除已完成的作业信息。主要清除那些状态为SUCCEEDED、FAILED、KILLED的job，
-    // 并且是在RETIRE_JOB_INTERVAL时间间隔（由mapred.jobtracker.retirejob.interval参数设置，默认是24 * 60 * 60 * 1000，单位ms）之前完成；
-    // 或者用户保存的总完成job数超过MAX_COMPLETE_USER_JOBS_IN_MEMORY（由mapred.jobtracker.completeuserjobs.maximum参数设置，默认是100）也会将已完成的作业进行清除
+    // retireJobsThread：该线程用于清除已完成的作业信息。JobTracker会将已经完成的作业信息存放到内存中，以便外部查询，但随着job越来越多，会占用JobTracker大量内存，
+    // 为此，JobTracker通过该线程清理驻留在内存中较长时间的已经运行完成的作业信息，当job满足如下条件1,2或者条件1,3时，将被从数据结构jobs转移到过期作业队列中。
+    // 1. 作业已经运行完成，即运行状态为SUCCEEDED、FAILED、KILLED的job，
+    // 2. 作业完成时间距现在已经超过24小时，即RETIRE_JOB_INTERVAL时间间隔（由mapred.jobtracker.retirejob.interval参数设置，默认是24 * 60 * 60 * 1000，单位ms, 即24小时）；
+    // 3. 作业拥有者已经完成作业总数超过100，即MAX_COMPLETE_USER_JOBS_IN_MEMORY（由mapred.jobtracker.completeuserjobs.maximum参数设置，默认是100）
     this.retireJobsThread = new Thread(this.retireJobs, "retireJobs");
     this.retireJobsThread.start();
     // expireLaunchingTaskThread：该线程用于发现已经分配给某个TaskTracker但一直未汇报信息的任务。
-    // 主要是根据每个TaskAttemptID启动的时间与当前时间的间隔是否大于TASKTRACKER_EXPIRY_INTERVAL（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms）决定。
+    // 主要是根据每个TaskAttemptID启动的时间与当前时间的间隔是否大于TASKTRACKER_EXPIRY_INTERVAL（由mapred.tasktracker.expiry.interval参数设置，默认是10 * 60 * 1000，单位ms, 即10分钟）决定。
+    // 当JobTracker将某个任务分配给TaskTracker后，如果该任务在10分钟内未汇报进度，则JobTracker认为该任务分配失败，并将其状态标注为FAILED
     expireLaunchingTaskThread.start();
 
     if (completedJobStatusStore.isActive()) {
+      // completedJobsStoreThread：该线程用于将已完成的作业信息保存到hdfs中, 并提供了一套存取这些信息的API。该线程能够解决以下两个问题：
+      // 1.用户无法获取很久之前的作业运行信息：前面提到线程retireJobsThread会清除长时间驻留在内存中的完成作业，这会导致用户无法查询很久之前某个作业的运行信息。
+      // 2.JobTracker重启后作业运行信息丢失：当JobTracker因故障重启后，所有原本保存到内存中的作业信息将会全部丢失。
+      // 该线程通过保存作业运行日志的方式，使得用户可以查询任意时间提交的作业和还原作业的运行信息。默认情况下，该线程不会启用。
       completedJobsStoreThread = new Thread(completedJobStatusStore,
                                             "completedjobsStore-housekeeper");
-      // completedJobsStoreThread：该线程用于将已完成的作业信息保存到hdfs中。
       completedJobsStoreThread.start();
     }
 
@@ -3048,13 +3057,29 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    * The {@link JobTracker} processes the status information sent by the 
    * {@link TaskTracker} and responds with instructions to start/stop 
    * tasks or jobs, and also 'reset' instructions during contingencies.
+   *
    * JobTracker与TaskTracker之间通过org.apache.hadoop.mapred.InterTrackerProtocol协议来进行通信，
+   * 心跳机制实际上是一个RPC请求，JobTracker作为Server，而TaskTracker作为Client，TaskTracker通过RPC调用JT的heartbeat方法，将TT自身的一些状态信息发送给JT，同时JT通过返回值返回对TT的指令。
+   * 心跳有三个作用：
+   * 1）判断TT是否活着
+   * 2）报告TT的资源情况以及任务运行情况
+   * 3）为TT发送指令（如运行task，kill task等）
+
    * TaskTracker通过该接口进行远程调用实现Heartbeat消息的发送，协议方法定义如下所示：
    *
    * 通过该方法可以看出，最核心的Heartbeat报告数据都封装在TaskTrackerStatus对象中，JobTracker端会接收TaskTracker周期性地发送的心跳报告，
    * 根据这些心跳信息来更新整个Hadoop集群中计算资源的状态/数量，以及Task的运行状态。
+   *
+   * @param status          该参数封装了TaskTracker上的各种状态信息
+   * @param restarted       如果TaskTracker刚刚重新启动，该值为true，否则为false
+   * @param initialContact  如果TaskTracker是初次连接JobTracker，该值为true，否则为false
+   * @param acceptNewTasks  如果Tasktracker可以接收新任务，该值为true，否则该值为false，这通常取决于slot是否有剩余和节点健康状况等。
+   * @param responseId      表示心跳响应编号，用于防止重复发送心跳。每接收一次心跳后，该值加1。
+   * @return                该函数的返回值为一个HeartbeatResponse对象，该对象主要封装了JobTracker向TaskTracker下达的命令。
+   * @throws IOException
+   *
    */
-  public synchronized HeartbeatResponse heartbeat(TaskTrackerStatus status, 
+  public synchronized HeartbeatResponse heartbeat(TaskTrackerStatus status,
                                                   boolean restarted,
                                                   boolean initialContact,
                                                   boolean acceptNewTasks, 

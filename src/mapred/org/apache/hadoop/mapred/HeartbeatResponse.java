@@ -38,9 +38,13 @@ import org.apache.hadoop.io.WritableUtils;
  */
 class HeartbeatResponse implements Writable, Configurable {
   Configuration conf = null;
+  // 心跳响应编号
   short responseId;
+  // 下次心跳的发送间隔
   int heartbeatInterval;
+  // 来自JobTracker的命令，可能包括杀死作业，杀死任务，提交任务，运行任务等。
   TaskTrackerAction[] actions;
+  // 恢复完成的作业列表
   Set<JobID> recoveredJobs = new HashSet<JobID>();
 
   HeartbeatResponse() {}
