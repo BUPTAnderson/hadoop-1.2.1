@@ -1964,7 +1964,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // 所以直接将上次收集到的TT状态信息（封装在status中）发送给JT；相反，status==null，则表示上次心跳已完成，重新收集TT的状态信息，同样封装到status中。
     if (status == null) {
       synchronized (this) {
-        // 构造TaskTrackerStatus
+        // 重新收集TT的状态信息， 构造TaskTrackerStatus, 看一下TaskTrackerStatus构造方法，看一下方法cloneAndResetRunningTaskStatuses实现
         status = new TaskTrackerStatus(taskTrackerName, localHostname, 
                                        httpPort, 
                                        cloneAndResetRunningTaskStatuses(
@@ -1975,25 +1975,33 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                                        maxReduceSlots); 
       }
     } else {
+      // status != null, 表示上次的心跳尚未发送，直接将上次收集到的TT状态信息(封装在status中)发送给JT
       LOG.info("Resending 'status' to '" + jobTrackAddr.getHostName() +
                "' with reponseId '" + heartbeatResponseId);
     }
       
     //
     // Check if we should ask for a new Task
+    // 下面这段是TT根据自身资源使用情况判断是否接收new task
     //
     boolean askForNewTask;
     long localMinSpaceStart;
     synchronized (this) {
-      askForNewTask = 
-        ((status.countOccupiedMapSlots() < maxMapSlots || 
+      // status.countOccupiedMapSlots() 获得该TT上已占用的map slot数量，具体看该方法的实现
+      // 同样的countOccupiedReduceSlots()方法计算出TT当前已占用的reduce slot数量。
+      // 获取到occupied map/reduce slots后将其同maxMapSlots/maxReduceSlots进行比较，这里是“||”而非“&&”，表示只要有map slot或者有reduce slot就可以接收新任务，当然还需要满足acceptNewTasks==true的条件。
+      askForNewTask =
+        ((status.countOccupiedMapSlots() < maxMapSlots ||
           status.countOccupiedReduceSlots() < maxReduceSlots) && 
-         acceptNewTasks); 
+         acceptNewTasks);
+      // minSpaceStart由mapred.local.dir.minspacestart参数决定,默认是0，即无限制，该值的意思应该是可接收新任务的localDirs最小的可用空间大小。接下来可以看到该值能够影响acceptNewTasks值。
       localMinSpaceStart = minSpaceStart;
     }
     if (askForNewTask) {
+      // enoughFreeSpace()方法进行判断
       askForNewTask = enoughFreeSpace(localMinSpaceStart);
       long freeDiskSpace = getFreeSpace();
+      // 接下来就是获取TT的一些资源信息，如总虚拟内存，总物理内存，可用的虚拟内存，可用的物理内存，CPU使用情况等。接着将这些值添加到status中去，发送给JT。
       long totVmem = getTotalVirtualMemoryOnTT();
       long totPmem = getTotalPhysicalMemoryOnTT();
       long availableVmem = getAvailableVirtualMemoryOnTT();
@@ -2018,6 +2026,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       status.getResourceStatus().setCpuUsage(cpuUsage);
     }
     //add node health information
+    // 下面是检查TT的健康状况。
     
     TaskTrackerHealthStatus healthStatus = status.getHealthStatus();
     synchronized (this) {
@@ -2031,7 +2040,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     }
     //
     // Xmit the heartbeat
-    //
+    // 此处通过RPC调用JT的heartbeat()方法。传的参数包括：status——TT自身的状态信息；justStarted——表示TT是否刚启动；justInited——表示TT是否刚初始化；
+    // askForNewTask——表示是否接收新任务；heartbeatResponseId——上次心跳返回的responseId。方法的返回值是一个HeartbeatResponse对象
     HeartbeatResponse heartbeatResponse = jobClient.heartbeat(status, 
                                                               justStarted,
                                                               justInited,
@@ -2040,9 +2050,11 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       
     //
     // The heartbeat got through successfully!
-    //
+    // 从HeartbeatResponse返回值中获取heartbeatResponseId。
     heartbeatResponseId = heartbeatResponse.getResponseId();
-      
+
+    // 接下来对TT中的每个TaskInProgress的status信息进行判断，如果一个task处于SUCCEEDED/FAILED/KILLED状态，则表示该task已完成（不论是失败还是成功，亦或是被kill掉），
+    // 如果该task是一个map任务，则mapTotal减一，该task是一个reduce任务，则reduceTotal减一，mapTotal/reduceTotal记录当前TT所有处于运行状态（非SUCCEEDED/FAILED/KILLED状态）的task数量。
     synchronized (this) {
       for (TaskStatus taskStatus : status.getTaskReports()) {
         if (taskStatus.getRunState() != TaskStatus.State.RUNNING &&
@@ -2054,13 +2066,17 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           } else {
             reduceTotal--;
           }
+          // myInstrumentation.completeTask(taskStatus.getTaskID())此处将该TT所有完成任务数加一
           myInstrumentation.completeTask(taskStatus.getTaskID());
+          // runningTasks.remove(taskStatus.getTaskID())则是将该task从runningTasks队列中移除，所以可以知道runningTasks中只包含未完成的task信息
           runningTasks.remove(taskStatus.getTaskID());
         }
       }
       
       // Clear transient status information which should only
       // be sent once to the JobTracker
+      // 接下来是清除TaskInProgress的TaskStatus的临时信息（diagnosticInfo），从clearStatus()方法的注释可以看出diagnosticInfo信息只是在Task向TaskTracker，
+      // 或者TaskTracker向JobTracker发送一个状态更新信息时的临时诊断信息，所以在发送完成之后需要清除。
       for (TaskInProgress tip: runningTasks.values()) {
         tip.getStatus().clearStatus();
       }
@@ -2069,6 +2085,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // Force a rebuild of 'status' on the next iteration
     status = null;                                
 
+    // 到这里整个TaskTracker发送心跳信息的过程就完成了，方法返回值是HeartbeatResponse对象，即心跳的返回值。
     return heartbeatResponse;
   }
 
@@ -2412,9 +2429,12 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     if (minSpace == 0) {
       return true;
     }
+    // 调用getFreeSpace()方法， 当计算出freeSpace后，根据比较localMinSpaceStart值与freeSpace的大小决定是否接收新任务。
     return minSpace < getFreeSpace();
   }
-  
+
+  // 判断方法是获取所有的lcoalDir，计算出这些目录中可用空间最大一个目录的可用大小，为什么使用最大值作为可用大小，而不是所有目录可用空间总和，
+  // 是因为localDir存放task的一些本地信息，这些信息是不能夸目录存放的，所以必须确保有一个目录能够容纳下所有的信息。
   private long getFreeSpace() throws IOException {
     long biggestSeenSoFar = 0;
     String[] localDirs = localStorage.getDirs();
@@ -3843,11 +3863,13 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   private synchronized List<TaskStatus> cloneAndResetRunningTaskStatuses(
                                           boolean sendCounters) {
+    // runningTasks队列保存了该TT上接收的所有未完成的Task任务，(实际是当前TT上所有的Task)
     List<TaskStatus> result = new ArrayList<TaskStatus>(runningTasks.size());
     for(TaskInProgress tip: runningTasks.values()) {
       TaskStatus status = tip.getStatus();
       status.setIncludeCounters(sendCounters);
       // send counters for finished or failed tasks and commit pending tasks
+      // 如果TaskInProgress不处于Running状态，则includeCounters设为true，即发送counters信息。
       if (status.getRunState() != TaskStatus.State.RUNNING) {
         status.setIncludeCounters(true);
       }

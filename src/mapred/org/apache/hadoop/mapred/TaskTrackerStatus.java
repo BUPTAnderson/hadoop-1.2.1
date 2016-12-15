@@ -377,10 +377,15 @@ public class TaskTrackerStatus implements Writable {
     this.host = host;
     this.httpPort = httpPort;
 
+    // 包含该TT上目前所有的Task状态信息，其中的counters信息会根据之前判断sendCounters值进行决定是否发送。
     this.taskReports = new ArrayList<TaskStatus>(taskReports);
+    // 该TT上失败的Task总数(重启会清空)，该参数帮助JT决定是否向该TT提交Task，因为失败数越多表明该TT可能出现Task失败的概率越大。
     this.taskFailures = taskFailures;
+    // 这个值是mapred.local.dir参数设置的目录中有多少是不可用的
     this.dirFailures = dirFailures;
+    // TT可使用的最大map slot数量
     this.maxMapTasks = maxMapTasks;
+    // TT可使用的最大reduce slot数量
     this.maxReduceTasks = maxReduceTasks;
     this.resStatus = new ResourceStatus();
     this.healthStatus = new TaskTrackerHealthStatus();
@@ -463,7 +468,9 @@ public class TaskTrackerStatus implements Writable {
    */
   public int countOccupiedMapSlots() {
     int mapSlotsCount = 0;
+    // 方法内部是根据taskReports中的TaskStatus进行判断，这里计算的是map slot，所以会判断ts.getIsMap()，如果该task是map任务，且isTaskRunning()返回true，则获取该task所需的slot数量
     for (TaskStatus ts : taskReports) {
+      // isTaskRunning()方法内部判断逻辑是：该task处于RUNNING或者UNASSIGNED状态，或者处于CleanerUp阶段（这里可能是Task处于FAILED_UNCLEAN或者KILLED_UNCLEAN阶段）。
       if (ts.getIsMap() && isTaskRunning(ts)) {
         mapSlotsCount += ts.getNumSlots();
       }
