@@ -1964,7 +1964,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // 所以直接将上次收集到的TT状态信息（封装在status中）发送给JT；相反，status==null，则表示上次心跳已完成，重新收集TT的状态信息，同样封装到status中。
     if (status == null) {
       synchronized (this) {
-        // 重新收集TT的状态信息， 构造TaskTrackerStatus, 看一下TaskTrackerStatus构造方法，看一下方法cloneAndResetRunningTaskStatuses实现
+        // 重新收集TT的状态信息， 构造TaskTrackerStatus, 看一下方法cloneAndResetRunningTaskStatuses实现，看一下TaskTrackerStatus构造方法。
         status = new TaskTrackerStatus(taskTrackerName, localHostname, 
                                        httpPort, 
                                        cloneAndResetRunningTaskStatuses(
@@ -1994,11 +1994,13 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         ((status.countOccupiedMapSlots() < maxMapSlots ||
           status.countOccupiedReduceSlots() < maxReduceSlots) && 
          acceptNewTasks);
-      // minSpaceStart由mapred.local.dir.minspacestart参数决定,默认是0，即无限制，该值的意思应该是可接收新任务的localDirs最小的可用空间大小。接下来可以看到该值能够影响acceptNewTasks值。
+      // minSpaceStart由mapred.local.dir.minspacestart参数决定,默认是0，即无限制，
+      // mapred.local.dir.minspacestart ： 这个选项用来告诉tasktracker，当某个mapred local 写入点的磁盘剩余空间小于这个配置的值的时候，该 TT就不再接受新的task。
+      // 接下来可以看到该值能够影响acceptNewTasks值。当acceptNewTasks==true时，即初步判断可以接收新任务，下面通过方法enoughFreeSpace() 再次根据localMinSpaceStart判断是否可接收新任务。
       localMinSpaceStart = minSpaceStart;
     }
     if (askForNewTask) {
-      // enoughFreeSpace()方法进行判断
+      // enoughFreeSpace()方法会再次根据localMinSpaceStart判断是否可接收新任务。
       askForNewTask = enoughFreeSpace(localMinSpaceStart);
       long freeDiskSpace = getFreeSpace();
       // 接下来就是获取TT的一些资源信息，如总虚拟内存，总物理内存，可用的虚拟内存，可用的物理内存，CPU使用情况等。接着将这些值添加到status中去，发送给JT。
@@ -2040,8 +2042,13 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     }
     //
     // Xmit the heartbeat
-    // 此处通过RPC调用JT的heartbeat()方法。传的参数包括：status——TT自身的状态信息；justStarted——表示TT是否刚启动；justInited——表示TT是否刚初始化；
-    // askForNewTask——表示是否接收新任务；heartbeatResponseId——上次心跳返回的responseId。方法的返回值是一个HeartbeatResponse对象
+    // 此处通过RPC调用JT的heartbeat()方法。传的参数包括：
+    // status——TT自身的状态信息；
+    // justStarted——表示TT是否刚启动；
+    // justInited——表示TT是否刚初始化；
+    // askForNewTask——表示是否接收新任务；
+    // heartbeatResponseId——上次心跳返回的responseId。
+    // 方法的返回值是一个HeartbeatResponse对象
     HeartbeatResponse heartbeatResponse = jobClient.heartbeat(status, 
                                                               justStarted,
                                                               justInited,
@@ -2050,7 +2057,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       
     //
     // The heartbeat got through successfully!
-    // 从HeartbeatResponse返回值中获取heartbeatResponseId。
+    // 从HeartbeatResponse返回值中获取新的heartbeatResponseId。
     heartbeatResponseId = heartbeatResponse.getResponseId();
 
     // 接下来对TT中的每个TaskInProgress的status信息进行判断，如果一个task处于SUCCEEDED/FAILED/KILLED状态，则表示该task已完成（不论是失败还是成功，亦或是被kill掉），
@@ -2083,6 +2090,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     }
 
     // Force a rebuild of 'status' on the next iteration
+    // heart beat发送成功，将status置为null
     status = null;                                
 
     // 到这里整个TaskTracker发送心跳信息的过程就完成了，方法返回值是HeartbeatResponse对象，即心跳的返回值。
@@ -2426,12 +2434,20 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * @throws IOException 
    */
   private boolean enoughFreeSpace(long minSpace) throws IOException {
+    // mapred.local.dir.minspacestart参数的默认值为0，即除非磁盘被完全写满，否则 task 就会一直认为可运行，并写数据 ，直到无法再写的时候失败。
     if (minSpace == 0) {
       return true;
     }
     // 调用getFreeSpace()方法， 当计算出freeSpace后，根据比较localMinSpaceStart值与freeSpace的大小决定是否接收新任务。
     return minSpace < getFreeSpace();
   }
+
+  //Task 在运行的过程中，是需要写本地文件 系 统 的，Hadoop中就有配置选项 mapred .local.dir 来配置这个本地文件的写入点，可以有多个写入点，通常如果每个slave上有多个磁 盘 ，分别挂载在 /disk{1..3}  的话，就可以将之配置为：
+  //<property>
+  //  <name>mapred.local.dir</name>
+  //  <value>/disk1/mapred/local,/disk2/mapred/local,/disk3/mapred/local</value>
+  //</property>
+  // 这 样多个 task在同一个TT上运行的时候，就可以分别写不同的磁盘写入点，以增大作业运行的磁盘吞吐率。参考网络博客： 磁盘空间不足导致task的mapred local文件无法写入而失败解决
 
   // 判断方法是获取所有的lcoalDir，计算出这些目录中可用空间最大一个目录的可用大小，为什么使用最大值作为可用大小，而不是所有目录可用空间总和，
   // 是因为localDir存放task的一些本地信息，这些信息是不能夸目录存放的，所以必须确保有一个目录能够容纳下所有的信息。
@@ -3863,7 +3879,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   private synchronized List<TaskStatus> cloneAndResetRunningTaskStatuses(
                                           boolean sendCounters) {
-    // runningTasks队列保存了该TT上接收的所有未完成的Task任务，(实际是当前TT上所有的Task)
+    // runningTasks队列保存了该TT上接收的所有未完成的Task任务，(实际是当前TT上所有的Task？runningTasks中应该是只包含未完成的task信息, 未完成的不一定是RUNNING，可能是UNSINGED等...)
+    // 如果一个task处于SUCCEEDED/FAILED/KILLED状态，则表示该task已完成（不论是失败还是成功，亦或是被kill掉）,会被从runningTasks队列中移除
     List<TaskStatus> result = new ArrayList<TaskStatus>(runningTasks.size());
     for(TaskInProgress tip: runningTasks.values()) {
       TaskStatus status = tip.getStatus();

@@ -56,7 +56,7 @@ public class TaskTrackerStatus implements Writable {
   int taskFailures;
   //
   int dirFailures;
-  // 正在运行的各个任务运行状态
+  // 正在运行的(未完成的 RUNNING或者UNASSIGNED状态，或者处于CleanerUp阶段)各个任务运行状态
   List<TaskStatus> taskReports;
 
   // 上次汇报心跳的时间

@@ -368,6 +368,7 @@ public abstract class TaskStatus implements Writable, Cloneable {
    */
   synchronized void clearStatus() {
     // Clear diagnosticInfo
+    // 诊断信息
     diagnosticInfo = "";
   }
 
