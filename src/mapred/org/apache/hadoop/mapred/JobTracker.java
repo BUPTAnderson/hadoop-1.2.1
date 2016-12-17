@@ -3094,6 +3094,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
 
     // Make sure heartbeat is from a tasktracker allowed by the jobtracker.
+    // 第一步是检查发送心跳请求的TT是否属于可允许的TT，这个是根据一个HostsFileReader对象进行判断的，该对象是在实例化JT的时候创建的，这个类保存了两个队列，分别是includes和excludes队列，
+    // includes表示可以访问的host列表，excludes表示不可访问的host列表，这两个列表的内容根据两个mapred.hosts和mapred.hosts.exclude（mapred-site,xml中，默认是null，即没有限制）这两个参数指定的文件名读取的。
+    // 具体可参考 this.hostsReader = new HostsFileReader(conf.get("mapred.hosts", ""), conf.get("mapred.hosts.exclude", ""));
     if (!acceptTaskTracker(status)) {
       throw new DisallowedTaskTrackerException(status);
     }
@@ -3101,6 +3104,10 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // First check if the last heartbeat response got through
     String trackerName = status.getTrackerName();
     long now = clock.getTime();
+    // 检查TT是否重启，是重启的话标识该TT的状态为健康的，否则检查TT的健康状态。
+    // faultyTrackers.markTrackerHealthy(status.getHost())内部将该TT所在的Host上所有的TT（从这里可以看出hadoop考虑到一个Host上可能存在多个TT的可能）从黑名单，灰名单和可能存在错误的列表上删除，
+    // 也就是从potentiallyFaultyTrackers队列中移除该Host，通过更新JT的numGraylistedTrackers/numBlacklistedTrackers数量以及JT的totalMapTaskCapacity和totalReduceTaskCapacity数量。
+    // 至于如何检查TT健康状态，具体是根据JT上记录的关于TT执行任务失败的次数来判断的（具体不是太理解）。
     if (restarted) {
       faultyTrackers.markTrackerHealthy(status.getHost());
     } else {
