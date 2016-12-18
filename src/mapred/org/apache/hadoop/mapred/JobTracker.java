@@ -1087,6 +1087,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           // a tracker can be both blacklisted and graylisted, so check both
           if (fi.isGraylisted()) {
             LOG.info("Marking " + hostName + " healthy from graylist");
+            // getNumTaskTrackersOnHost可以看出，一个Host上可能存在多个TT的可能
             decrGraylistedTrackers(getNumTaskTrackersOnHost(hostName));
           }
           if (fi.isBlacklisted()) {
@@ -1841,7 +1842,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
           
           // Check if there are jobs to be recovered
-          // 判断是否需要进行作业恢复，需要则直接退出（这里还没有开始作业恢复，现在帙只是在做初始化相关的工作），不需要则会执行删除systemDir命令，并重新创建systemDir目录
+          // 判断是否需要进行作业恢复，需要则直接退出（这里还没有开始作业恢复，现在只是在做初始化相关的工作），不需要则会执行删除systemDir命令，并重新创建systemDir目录
           hasRestarted = recoveryManager.shouldRecover();
           if (hasRestarted) {
             break; // if there is something to recover else clean the sys dir
@@ -3113,19 +3114,26 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     } else {
       faultyTrackers.checkTrackerFaultTimeout(status.getHost(), now);
     }
-    
+
+    // 从JT记录的HeartbeatResponse队列中获取该TT的HeartbeatResponse信息，即判断JT之前是否收到过该TT的心跳请求。
     HeartbeatResponse prevHeartbeatResponse =
       trackerToHeartbeatResponseMap.get(trackerName);
     boolean addRestartInfo = false;
 
+    // 如果initialContact != true,表明TT不是首次连接JT
     if (initialContact != true) {
       // If this isn't the 'initial contact' from the tasktracker,
       // there is something seriously wrong if the JobTracker has
       // no record of the 'previous heartbeat'; if so, ask the 
       // tasktracker to re-initialize itself.
+      // 如果prevHeartbeatResponse == null，即TT不是首次连接JT，而且JT中并没有该TT之前的心跳请求信息，
+      // 表明This is the first heartbeat from the old tracker to the newly started JobTracker
       if (prevHeartbeatResponse == null) {
         // This is the first heartbeat from the old tracker to the newly 
         // started JobTracker
+        // 判断hasRestarted是否为true，hasRestarted是在JT初始化(main-> tracker.offerService -> initialize() -> hasRestarted = recoveryManager.shouldRecover() )即根据recoveryManager的shouldRecover来决定的
+        // 所以当需要进行job恢复时，addRestartInfo会被设置为true，即需要TT进行job恢复操作，同时从recoveryManager的recoveredTrackers队列中移除该TT。
+        // 如果不需要进行任务恢复，则直接返回HeartbeatResponse，并对TT下重新初始化指令，注意此处返回的responseId还是原来的responseId，即responseId不变。
         if (hasRestarted()) {
           addRestartInfo = true;
           // inform the recovery manager about this tracker joining back
@@ -3140,7 +3148,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               new TaskTrackerAction[] {new ReinitTrackerAction()});
         }
 
-      } else {
+      } else {  // 当prevHeartbeatResponse!=null时会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
                 
         // It is completely safe to not process a 'duplicate' heartbeat from a 
         // {@link TaskTracker} since it resends the heartbeat when rpcs are 
