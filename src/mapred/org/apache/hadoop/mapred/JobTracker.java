@@ -3163,9 +3163,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
       
-    // Process this heartbeat 
+    // Process this heartbeat
+    // 首先将responseId + 1，然后记录心跳发送时间。
     short newResponseId = (short)(responseId + 1);
     status.setLastSeen(now);
+    // processHeartbeat方法，如果processHeartbeat()返回false，则返回HeartbeatResponse()，并下达重新初始化TT指令。
     if (!processHeartbeat(status, initialContact, now)) {
       if (prevHeartbeatResponse != null) {
         trackerToHeartbeatResponseMap.remove(trackerName);
@@ -3440,8 +3442,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
     synchronized (taskTrackers) {
       synchronized (trackerExpiryQueue) {
+        // 根据该TT的上一次心跳发送的状态信息更新JT的一些信息，如totalMaps,totalReduces,occupiedMapSlots,occupiedReduceSlots等，接着根据本次心跳发送的TT状态信息再次更新这些变量
         boolean seenBefore = updateTaskTrackerStatus(trackerName,
                                                      trackerStatus);
+        // 如果该TT是首次连接JT，且存在oldStatus，则表明JT丢失了TT，具体意思应该是JT在一段时间内与TT失去了联系，之后TT恢复了，所以发送心跳时显示首次连接。
+        // lostTaskTracker(taskTracker)：会将该TT从所有的队列中移除，并将该TT上记录的job清除掉(kill掉)，当然对那些已经完成的Job不会进行次操作。
+        // 当TT不是首次连接到JT，但是JT却没有该TT的历史status信息，则表示JT对该TT未知，所以重新更新TaskTracker状态信息。
         TaskTracker taskTracker = getTaskTracker(trackerName);
         if (initialContact) {
           // If it's first contact, then clear out 
@@ -3471,6 +3477,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
 
+    // 更新Task和NodeHealth信息，较复杂。
     updateTaskStatuses(trackerStatus);
     updateNodeHealthStatus(trackerStatus, timeStamp);
     
