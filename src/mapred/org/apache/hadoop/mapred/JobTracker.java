@@ -3167,7 +3167,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 首先将responseId + 1，然后记录心跳发送时间。
     short newResponseId = (short)(responseId + 1);
     status.setLastSeen(now);
-    // processHeartbeat方法，如果processHeartbeat()返回false，则返回HeartbeatResponse()，并下达重新初始化TT指令。
+    // processHeartbeat方法(具体查看该方法的实现)，如果processHeartbeat()返回false，则返回HeartbeatResponse()，并下达重新初始化TT指令。
     if (!processHeartbeat(status, initialContact, now)) {
       if (prevHeartbeatResponse != null) {
         trackerToHeartbeatResponseMap.remove(trackerName);
@@ -3177,15 +3177,20 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
       
     // Initialize the response to be sent for the heartbeat
+    // 此处会实例化一个HeartbeatResponse对象，作为本次心跳的返回值，在初始化一个TaskTrackerAction队列，用于存放JT对TT下达的指令。
     HeartbeatResponse response = new HeartbeatResponse(newResponseId, null);
     List<TaskTrackerAction> actions = new ArrayList<TaskTrackerAction>();
     boolean isBlacklisted = faultyTrackers.isBlacklisted(status.getHost());
     // Check for new tasks to be executed on the tasktracker
+    // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要回复的TT，
+    // 然后根据TT心跳发送的acceptNewTasks值，即表明TT是否可接收新任务，并且该TT不在黑名单中，
+    // 同上满足以上条件，则JT可以为TT分配任务。分配任务的选择方式是优先CleanipTask，然后是SetupTask，然后才是Map/Reduce Task
     if (recoveryManager.shouldSchedule() && acceptNewTasks && !isBlacklisted) {
       TaskTrackerStatus taskTrackerStatus = getTaskTrackerStatus(trackerName);
       if (taskTrackerStatus == null) {
         LOG.warn("Unknown task tracker polling; ignoring: " + trackerName);
       } else {
+        // 看一下getSetupAndCleanupTasks方法的具体实现
         List<Task> tasks = getSetupAndCleanupTasks(taskTrackerStatus);
         if (tasks == null ) {
           tasks = taskScheduler.assignTasks(taskTrackers.get(trackerName));
@@ -3603,10 +3608,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     TaskTrackerStatus taskTracker) throws IOException {
     
     // Don't assign *any* new task in safemode
+    // 如果集群处于safe模式，则不分配任务
     if (isInSafeMode()) {
       return null;
     }
-    
+
+    // 计算TT的最大map/reduce slot，以及已占用的map/reduce slot，以及集群可使用的TT数量，和集群的host数量。
     int maxMapTasks = taskTracker.getMaxMapSlots();
     int maxReduceTasks = taskTracker.getMaxReduceSlots();
     int numMaps = taskTracker.countOccupiedMapSlots();
@@ -3617,6 +3624,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     Task t = null;
     synchronized (jobs) {
       if (numMaps < maxMapTasks) {
+        // 首先获取Job的Cleanup任务，每个Job有两个Cleanup任务，分别是map和reduce的。
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3626,6 +3634,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
+        // 然后获取一个Cleanup任务的TaskAttempt。
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3634,6 +3643,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
+        // 然后在获取Job的setup任务
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3644,6 +3654,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
         }
       }
+      // 上面这三个全部是获取的map任务，而下面是获取reduce任务，方法基本一样。
+      // 如果getSetupAndCleanupTasks 方法返回null，则表示没有cleanup或者setup任务需要执行，则执行map/reduce任务。
       if (numReduces < maxReduceTasks) {
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
