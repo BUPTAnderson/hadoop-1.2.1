@@ -3129,9 +3129,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // 如果prevHeartbeatResponse == null，即TT不是首次连接JT，而且JT中并没有该TT之前的心跳请求信息，
       // 表明This is the first heartbeat from the old tracker to the newly started JobTracker
       if (prevHeartbeatResponse == null) {
-        // This is the first heartbeat from the old tracker to the newly 
-        // started JobTracker
-        // 判断hasRestarted是否为true，hasRestarted是在JT初始化(main-> tracker.offerService -> initialize() -> hasRestarted = recoveryManager.shouldRecover() )即根据recoveryManager的shouldRecover来决定的
+        // This is the first heartbeat from the old tracker to the newly started JobTracker
+        // 判断hasRestarted是否为true，hasRestarted是在JT初始化(main-> tracker.offerService -> initialize() -> hasRestarted = recoveryManager.shouldRecover() )
+        // 即根据recoveryManager的shouldRecover来决定的
         // 所以当需要进行job恢复时，addRestartInfo会被设置为true，即需要TT进行job恢复操作，同时从recoveryManager的recoveredTrackers队列中移除该TT。
         // 如果不需要进行任务恢复，则直接返回HeartbeatResponse，并对TT下重新初始化指令，注意此处返回的responseId还是原来的responseId，即responseId不变。
         if (hasRestarted()) {
@@ -3148,7 +3148,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               new TaskTrackerAction[] {new ReinitTrackerAction()});
         }
 
-      } else {  // 当prevHeartbeatResponse!=null时会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
+      } else {
+        // 当prevHeartbeatResponse!=null时, 如果prevHeartbeatResponse.getResponseId() != responseId， 则任务这是一条重复的心跳请求
+        // 会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
                 
         // It is completely safe to not process a 'duplicate' heartbeat from a 
         // {@link TaskTracker} since it resends the heartbeat when rpcs are 
@@ -3177,14 +3179,15 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
       
     // Initialize the response to be sent for the heartbeat
-    // 此处会实例化一个HeartbeatResponse对象，作为本次心跳的返回值，在初始化一个TaskTrackerAction队列，用于存放JT对TT下达的指令。
+    // 此处会实例化一个HeartbeatResponse对象，作为本次心跳的返回值，
     HeartbeatResponse response = new HeartbeatResponse(newResponseId, null);
+    // 再初始化一个TaskTrackerAction队列，用于存放JT对TT下达的指令。
     List<TaskTrackerAction> actions = new ArrayList<TaskTrackerAction>();
     boolean isBlacklisted = faultyTrackers.isBlacklisted(status.getHost());
     // Check for new tasks to be executed on the tasktracker
-    // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要回复的TT，
+    // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要恢复的TT，
     // 然后根据TT心跳发送的acceptNewTasks值，即表明TT是否可接收新任务，并且该TT不在黑名单中，
-    // 同上满足以上条件，则JT可以为TT分配任务。分配任务的选择方式是优先CleanipTask，然后是SetupTask，然后才是Map/Reduce Task
+    // 同上满足以上条件，则JT可以为TT分配任务。分配任务的选择方式是优先CleanupTask，然后是SetupTask，然后才是Map/Reduce Task
     if (recoveryManager.shouldSchedule() && acceptNewTasks && !isBlacklisted) {
       TaskTrackerStatus taskTrackerStatus = getTaskTrackerStatus(trackerName);
       if (taskTrackerStatus == null) {
@@ -3193,6 +3196,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // 看一下getSetupAndCleanupTasks方法的具体实现
         List<Task> tasks = getSetupAndCleanupTasks(taskTrackerStatus);
         if (tasks == null ) {
+          // 此处是使用TaskScheduler调度任务，一大难点，后期分析。
           tasks = taskScheduler.assignTasks(taskTrackers.get(trackerName));
         }
         if (tasks != null) {
@@ -3201,12 +3205,15 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             if(LOG.isDebugEnabled()) {
               LOG.debug(trackerName + " -> LaunchTask: " + task.getTaskID());
             }
+            // 生成一个LaunchTaskAction指令。
             actions.add(new LaunchTaskAction(task));
           }
         }
       }
     }
 
+    // 以下分别是下达kill task（KillTaskAction）指令，kill/cleanedup job（KillJobAction）指令，commit task（CommitTaskAction）指令。
+    // 加上LaunchTaskAction和另一个ReinitTackerAction，这是心跳JT对TT下达的所有五种指令
     // Check for tasks to be killed
     List<TaskTrackerAction> killTasksList = getTasksToKill(trackerName);
     if (killTasksList != null) {
@@ -3225,6 +3232,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       actions.addAll(commitTasksList);
     }
 
+    // 剩下一些收尾工作，如计算下次发送心跳的时间，以及设置需要TT进行恢复的任务，更新trackerToHeartbeatResponseMap队列，移除标记的task。最后返回HeartbeatResponse对象，完成心跳请求响应。
     // calculate next heartbeat interval and put in heartbeat response
     int nextInterval = getNextHeartbeatInterval();
     response.setHeartbeatInterval(nextInterval);
@@ -3450,18 +3458,19 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // 根据该TT的上一次心跳发送的状态信息更新JT的一些信息，如totalMaps,totalReduces,occupiedMapSlots,occupiedReduceSlots等，接着根据本次心跳发送的TT状态信息再次更新这些变量
         boolean seenBefore = updateTaskTrackerStatus(trackerName,
                                                      trackerStatus);
-        // 如果该TT是首次连接JT，且存在oldStatus，则表明JT丢失了TT，具体意思应该是JT在一段时间内与TT失去了联系，之后TT恢复了，所以发送心跳时显示首次连接。
-        // lostTaskTracker(taskTracker)：会将该TT从所有的队列中移除，并将该TT上记录的job清除掉(kill掉)，当然对那些已经完成的Job不会进行次操作。
-        // 当TT不是首次连接到JT，但是JT却没有该TT的历史status信息，则表示JT对该TT未知，所以重新更新TaskTracker状态信息。
+
         TaskTracker taskTracker = getTaskTracker(trackerName);
         if (initialContact) {
+          // 如果该TT是首次连接JT，且存在oldStatus，则表明JT丢失了TT，具体意思应该是JT在一段时间内与TT失去了联系，之后TT恢复了，所以发送心跳时显示首次连接。
           // If it's first contact, then clear out 
           // any state hanging around
           if (seenBefore) {
+            // lostTaskTracker(taskTracker)：会将该TT从所有的队列中移除，并将该TT上记录的job清除掉(kill掉)，当然对那些已经完成的Job不会进行次操作。
             lostTaskTracker(taskTracker);
           }
         } else {
           // If not first contact, there should be some record of the tracker
+          // 当TT不是首次连接到JT，但是JT却没有该TT的历史status信息，则表示JT对该TT未知，所以重新更新TaskTracker状态信息。
           if (!seenBefore) {
             LOG.warn("Status from unknown Tracker : " + trackerName);
             updateTaskTrackerStatus(trackerName, null);
@@ -3624,7 +3633,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     Task t = null;
     synchronized (jobs) {
       if (numMaps < maxMapTasks) {
-        // 首先获取Job的Cleanup任务，每个Job有两个Cleanup任务，分别是map和reduce的。
+        // 首先获取Job的 map Cleanup任务，每个Job有两个Cleanup任务，分别是map和reduce的。
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3634,7 +3643,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
-        // 然后获取一个Cleanup任务的TaskAttempt。
+        // 然后获取一个map的Cleanup任务的TaskAttempt。
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3643,7 +3652,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
-        // 然后在获取Job的setup任务
+        // 然后在获取Job的 map的setup任务
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();

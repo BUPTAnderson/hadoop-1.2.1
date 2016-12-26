@@ -1010,6 +1010,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           // 调用writeSplits, 获取输入文件的分片数，以及将分片信息上传到工作目录
           int maps = writeSplits(context, submitJobDir);
           // 这里可以确定，有多少个分片就有多少个map task任务.用户自己设置的map数量是没有用的.
+          // 通过 -D mapred.map.tasks=num 来设置map task数量是没有用的。
           jobCopy.setNumMapTasks(maps);
 
           // write "queue admins of the queue to which job is being submitted"

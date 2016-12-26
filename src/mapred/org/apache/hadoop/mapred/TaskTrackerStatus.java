@@ -61,9 +61,14 @@ public class TaskTrackerStatus implements Writable {
 
   // 上次汇报心跳的时间
   volatile long lastSeen;
-  // Map slot总数，即允许同时运行的Map Task总数，由参数 mapred.tasktracker.map.tasks.maximum 设定
+  // Map slot总数，即允许同时运行的Map Task总数，由参数 mapred.tasktracker.map.tasks.maximum 设定, 默认为2
+  // 优化值：mapred.tasktracker.map.tasks.maximum = cpu数量
+  // cpu数量 = 服务器CPU总核数 / 每个CPU的核数
+  // 服务器CPU总核数 = more /proc/cpuinfo | grep 'processor' | wc -l
+  // 每个CPU的核数 = more /proc/cpuinfo | grep 'cpu cores'
   private int maxMapTasks;
-  // Reduce slot总数
+  // Reduce slot总数, 即允许同时运行的Reduce task总数，由参数mapred.tasktracker.reduce.tasks.maximum 设定，默认为2
+  // 优化值： (CPU数量 > 2) ? (CPU数量 * 0.50): 1 （mapr的官方建议）
   private int maxReduceTasks;
   // TaskTracker健康状态
   private TaskTrackerHealthStatus healthStatus;
