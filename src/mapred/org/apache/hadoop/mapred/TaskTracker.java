@@ -233,6 +233,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     }
   }
 
+  // task运行过程中需要写本地文件，localStorage就是配置的本地文件目录(mapred.local.dir)。该值是在TaskTracker构造方法中初始化的，构造方法是在main函数中调用的。
   private LocalStorage localStorage;
   private long lastCheckDirsTime;
   private int lastNumFailures;
@@ -300,6 +301,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   //dir -> DF
   Map<String, DF> localDirsDf = new HashMap<String, DF>();
+  //  初始化 initialize()方法中会初始化该值：this.minSpaceStart = this.fConf.getLong("mapred.local.dir.minspacestart", 0L);
+  // 这个选项用来告诉tasktracker，写入点：mapred.local.dir(可以配置多个目录，即多个写入点) 中空间最大的写入点的磁盘剩余空间小于这个配置的值的时候，该 TT就不再接受新的task。默认为0L，即没有限制。
+  // 只要有一个写入点的剩余空间大小大于minSpaceStart，该TT就可以接收新的task
   long minSpaceStart = 0;
   //must have this much space free to start new tasks
   boolean acceptNewTasks = true;
@@ -1559,6 +1563,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                      DefaultTaskController.class, TaskController.class);
 
     fConf = new JobConf(conf);
+    // mapred.local.dir, Task 在运行的过程中，是需要写本地文件系统的，Hadoop中就有配置选项 mapred.local.dir 来配置这个本地文件的写入点，可以有多个写入点，用逗号隔开。
     localStorage = new LocalStorage(fConf.getLocalDirs());
     localStorage.checkDirs();
     taskController = 
@@ -1960,7 +1965,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // if so then build the heartbeat information for the JobTracker;
     // else resend the previous status information.
     //
-    // 此处根据status变量是否为null，判断上次的心跳是否成功发送。tatus!=null，则表示上次的心跳尚未发送，
+    // 此处根据status变量是否为null，判断上次的心跳是否成功发送。status!=null，则表示上次的心跳尚未发送，
     // 所以直接将上次收集到的TT状态信息（封装在status中）发送给JT；相反，status==null，则表示上次心跳已完成，重新收集TT的状态信息，同样封装到status中。
     if (status == null) {
       synchronized (this) {
@@ -1990,12 +1995,13 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       // status.countOccupiedMapSlots() 获得该TT上已占用的map slot数量，具体看该方法的实现
       // 同样的countOccupiedReduceSlots()方法计算出TT当前已占用的reduce slot数量。
       // 获取到occupied map/reduce slots后将其同maxMapSlots/maxReduceSlots进行比较，这里是“||”而非“&&”，表示只要有map slot或者有reduce slot就可以接收新任务，当然还需要满足acceptNewTasks==true的条件。
+      // acceptNewTasks会在其他地方根据TT可使用的空间进行合适的赋值。
       askForNewTask =
         ((status.countOccupiedMapSlots() < maxMapSlots ||
           status.countOccupiedReduceSlots() < maxReduceSlots) && 
          acceptNewTasks);
       // minSpaceStart由mapred.local.dir.minspacestart参数决定,默认是0，即无限制，
-      // mapred.local.dir.minspacestart ： 这个选项用来告诉tasktracker，当某个mapred local 写入点的磁盘剩余空间小于这个配置的值的时候，该 TT就不再接受新的task。
+      // mapred.local.dir.minspacestart ： 这个选项用来告诉tasktracker，当某个mapred.local.dir 写入点中最大的目录的磁盘剩余空间小于这个配置的值的时候，该 TT就不再接受新的task。
       // 接下来可以看到该值能够影响acceptNewTasks值。当acceptNewTasks==true时，即初步判断可以接收新任务，下面通过方法enoughFreeSpace() 再次根据localMinSpaceStart判断是否可接收新任务。
       localMinSpaceStart = minSpaceStart;
     }
@@ -2075,7 +2081,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           }
           // myInstrumentation.completeTask(taskStatus.getTaskID())此处将该TT所有完成任务数加一
           myInstrumentation.completeTask(taskStatus.getTaskID());
-          // runningTasks.remove(taskStatus.getTaskID())则是将该task从runningTasks队列中移除，所以可以知道runningTasks中只包含未完成的task信息
+          // runningTasks.remove(taskStatus.getTaskID())则是将该task从runningTasks队列中移除，所以可以知道runningTasks中只包含未完成的task信息,即非SUCCEEDED/FAILED/KILLED状态的task。
           runningTasks.remove(taskStatus.getTaskID());
         }
       }
@@ -2442,12 +2448,12 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     return minSpace < getFreeSpace();
   }
 
-  //Task 在运行的过程中，是需要写本地文件 系 统 的，Hadoop中就有配置选项 mapred .local.dir 来配置这个本地文件的写入点，可以有多个写入点，通常如果每个slave上有多个磁 盘 ，分别挂载在 /disk{1..3}  的话，就可以将之配置为：
+  //Task在运行的过程中，是需要写本地文件系统的，Hadoop中就有配置选项 mapred.local.dir 来配置这个本地文件的写入点，可以有多个写入点，通常如果每个slave上有多个磁盘，分别挂载在 /disk{1..3}的话，就可以将之配置为：
   //<property>
   //  <name>mapred.local.dir</name>
   //  <value>/disk1/mapred/local,/disk2/mapred/local,/disk3/mapred/local</value>
   //</property>
-  // 这 样多个 task在同一个TT上运行的时候，就可以分别写不同的磁盘写入点，以增大作业运行的磁盘吞吐率。参考网络博客： 磁盘空间不足导致task的mapred local文件无法写入而失败解决
+  // 这样多个task在同一个TT上运行的时候，就可以分别写不同的磁盘写入点，以增大作业运行的磁盘吞吐率。参考网络博客： 磁盘空间不足导致task的mapred local文件无法写入而失败解决
 
   // 判断方法是获取所有的lcoalDir，计算出这些目录中可用空间最大一个目录的可用大小，为什么使用最大值作为可用大小，而不是所有目录可用空间总和，
   // 是因为localDir存放task的一些本地信息，这些信息是不能夸目录存放的，所以必须确保有一个目录能够容纳下所有的信息。
