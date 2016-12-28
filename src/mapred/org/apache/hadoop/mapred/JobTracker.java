@@ -3112,6 +3112,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     if (restarted) {
       faultyTrackers.markTrackerHealthy(status.getHost());
     } else {
+      // 检查是否可以指派任务在该TaskTracker上进行。
       faultyTrackers.checkTrackerFaultTimeout(status.getHost(), now);
     }
 
@@ -3149,8 +3150,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
 
       } else {
-        // 当prevHeartbeatResponse!=null时, 如果prevHeartbeatResponse.getResponseId() != responseId， 则任务这是一条重复的心跳请求
-        // 会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
+        // 当prevHeartbeatResponse!=null时, 如果prevHeartbeatResponse.getResponseId() != responseId， 则认为这是一条重复的心跳请求
+        // 说明TaskTracker因为失去了与JobTracker之间的RPC连接而没有接收到，会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
                 
         // It is completely safe to not process a 'duplicate' heartbeat from a 
         // {@link TaskTracker} since it resends the heartbeat when rpcs are 

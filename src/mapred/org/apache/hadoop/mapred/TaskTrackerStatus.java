@@ -46,17 +46,19 @@ public class TaskTrackerStatus implements Writable {
        });
   }
 
-  // TaskTracker名称
+  // TaskTracker名称，例如：tracker_ + localHostname + : + taskReportAddress
   String trackerName;
   // TaskTracker主机名
   String host;
-  // TaskTracker对外的HTTP端口号
+  // TaskTracker对外的HTTP端口号， 默认50030
   int httpPort;
   // 该TaskTracker上已经失败的任务总数
   int taskFailures;
-  //
+  // 在TaskTracker节点上，配置的mapred.local.dir目录失败的个数
   int dirFailures;
   // 正在运行的(未完成的 RUNNING或者UNASSIGNED状态，或者处于CleanerUp阶段)各个任务运行状态
+  // TaskStatus:在该TaskTracker上，当前task的状态，它有分为MapTaskStatus和ReduceTaskStatus，
+  // 主要包含如下内容：taskid（TaskAttemptID）、运行进度百分比、运行状态、诊断信息、所在TaskTracker名称、slot数、开始时间、结束时间、执行阶段（Phase）、一组计数器信息
   List<TaskStatus> taskReports;
 
   // 上次汇报心跳的时间
@@ -355,7 +357,7 @@ public class TaskTrackerStatus implements Writable {
     }
   }
 
-  // TaskTracker资源（内存，CPU等）信息
+  // 在该TaskTracker上的资源情况，主要包括如下内容：虚拟内存大小、物理内存大小、Map slot数量、Reduce slot数量、可用磁盘空间、可用虚拟内存大小、可用物理内存大小、处理器数量、CPU频率、CPU使用百分比、累积CPU时间
   private ResourceStatus resStatus;
   
   /**
