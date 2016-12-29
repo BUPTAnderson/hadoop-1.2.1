@@ -3170,7 +3170,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 首先将responseId + 1，然后记录心跳发送时间。
     short newResponseId = (short)(responseId + 1);
     status.setLastSeen(now);
-    // processHeartbeat方法(具体查看该方法的实现)，如果processHeartbeat()返回false，则返回HeartbeatResponse()，并下达重新初始化TT指令。
+    // processHeartbeat方法，用来判断TaskTracker是否需要重新初始化，返回false则需要重新初始化，返回true则不需要重新初始化(具体查看该方法的实现)，
+    // 如果processHeartbeat()返回false，则返回HeartbeatResponse()，并下达重新初始化TT指令。只有当 initialContact = false,并且不存在old tastTrackerStatus时才返回false。
     if (!processHeartbeat(status, initialContact, now)) {
       if (prevHeartbeatResponse != null) {
         trackerToHeartbeatResponseMap.remove(trackerName);
@@ -3186,7 +3187,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     List<TaskTrackerAction> actions = new ArrayList<TaskTrackerAction>();
     boolean isBlacklisted = faultyTrackers.isBlacklisted(status.getHost());
     // Check for new tasks to be executed on the tasktracker
-    // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要恢复的TT，
+    // 检查是否可以向该TaskTracker指派任务，如果可以可以向该TaskTracker指派任务，则直接使用TaskScheduler指定的调度策略，选择当前可以指派给TaskTracker的一组需要启动的Task（对应指令LaunchTaskAction）。
+    // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要恢复的TT，没有则返回true。
     // 然后根据TT心跳发送的acceptNewTasks值，即表明TT是否可接收新任务，并且该TT不在黑名单中，
     // 同上满足以上条件，则JT可以为TT分配任务。分配任务的选择方式是优先CleanupTask，然后是SetupTask，然后才是Map/Reduce Task
     if (recoveryManager.shouldSchedule() && acceptNewTasks && !isBlacklisted) {
@@ -3216,18 +3218,21 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 以下分别是下达kill task（KillTaskAction）指令，kill/cleanedup job（KillJobAction）指令，commit task（CommitTaskAction）指令。
     // 加上LaunchTaskAction和另一个ReinitTackerAction，这是心跳JT对TT下达的所有五种指令
     // Check for tasks to be killed
+    // 先检查在该TaskTracker上是否有完成的Job，计算属于这些Job的需要被Kill掉（对应指令KillTaskAction）的Task；
     List<TaskTrackerAction> killTasksList = getTasksToKill(trackerName);
     if (killTasksList != null) {
       actions.addAll(killTasksList);
     }
      
     // Check for jobs to be killed/cleanedup
+    // 再检查是否有完成的Job，并且对应在该TaskTracker上的Task需要被清理（对应指令KillJobAction）；
     List<TaskTrackerAction> killJobsList = getJobsForCleanup(trackerName);
     if (killJobsList != null) {
       actions.addAll(killJobsList);
     }
 
     // Check for tasks whose outputs can be saved
+    // 最后检查是否有已经完成需要被提交的Task（以此来通知TaskTracker提交Task完成并更新状态，对应指令CommitTaskAction）。
     List<TaskTrackerAction> commitTasksList = getTasksToSave(status);
     if (commitTasksList != null) {
       actions.addAll(commitTasksList);
@@ -3246,9 +3251,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
         
     // Update the trackerToHeartbeatResponseMap
+    // 更新JobTracker内部维护的trackerToHeartbeatResponseMap映射。
     trackerToHeartbeatResponseMap.put(trackerName, response);
 
     // Done processing the hearbeat, now remove 'marked' tasks
+    // 根据TaskTracker的Heartbeat报告的Task状态信息，对标记为完成的Task，更新JobTracker内部维护的多个队列和Map：trackerToMarkedTasksMap、taskidToTrackerMap、trackerToTaskMap、taskidToTIPMap
     removeMarkedTasks(trackerName);
         
     return response;
@@ -3306,6 +3313,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private boolean updateTaskTrackerStatus(String trackerName,
                                           TaskTrackerStatus status) {
     TaskTracker tt = getTaskTracker(trackerName);
+    // oldStatus == null,返回false；oldStatus !=null，返回true。
     TaskTrackerStatus oldStatus = (tt == null) ? null : tt.getStatus();
     if (oldStatus != null) {
       totalMaps -= oldStatus.countMapTasks();
@@ -3457,6 +3465,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     synchronized (taskTrackers) {
       synchronized (trackerExpiryQueue) {
         // 根据该TT的上一次心跳发送的状态信息更新JT的一些信息，如totalMaps,totalReduces,occupiedMapSlots,occupiedReduceSlots等，接着根据本次心跳发送的TT状态信息再次更新这些变量
+        // 返回值根据 is old taskTrackerStatus found? 存在返回true，不存在返回false
         boolean seenBefore = updateTaskTrackerStatus(trackerName,
                                                      trackerStatus);
 
