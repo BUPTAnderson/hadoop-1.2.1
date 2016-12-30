@@ -2549,6 +2549,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       trackerToMarkedTasksMap.get(taskTracker);
     if (markedTaskSet != null) {
       for (TaskAttemptID taskid : markedTaskSet) {
+        // 同时更新JobTracker内部维护的如下3个队列：TreeMap<TaskAttemptID, String> taskidToTrackerMap、TreeMap<String, Set<TaskAttemptID>> trackerToTaskMap、Map<TaskAttemptID, TaskInProgress> taskidToTIPMap。
         removeTaskEntry(taskid);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Removed marked completed task '" + taskid + "' from '" + 
@@ -2556,6 +2557,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
       }
       // Clear
+      // 从队列TreeMap<String, Set<TaskAttemptID>> trackerToMarkedTasksMap中移除所有被标记完成的Task
       trackerToMarkedTasksMap.remove(taskTracker);
     }
   }
@@ -4751,31 +4753,41 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     LOG.info("Lost tracker '" + trackerName + "'");
     
     // remove the tracker from the local structures
+    // 从队列Map<String, Set<JobID>> trackerToJobsToCleanup中移除在该TaskTracker上已经完成且需要清理的所有Job。
     synchronized (trackerToJobsToCleanup) {
       trackerToJobsToCleanup.remove(trackerName);
     }
-    
+
+    // 从队列Map<String, Set<TaskAttemptID>> trackerToTasksToCleanup中移除在TaskTracker上已经运行完成且需要清理的所有Task。
     synchronized (trackerToTasksToCleanup) {
       trackerToTasksToCleanup.remove(trackerName);
     }
     
     // Inform the recovery manager
+    // 通知Recovery Manager从其维护的Set<String>类型的恢复列表JobTracker.RecoveryManager.recoveredTrackers中移除该TaskTracker。
     recoveryManager.unMarkTracker(trackerName);
     
     Set<TaskAttemptID> lostTasks = trackerToTaskMap.get(trackerName);
+    // 从TreeMap<String, Set<TaskAttemptID>> trackerToTaskMap中删除在该TaskTracker上运行的所有Task。
     trackerToTaskMap.remove(trackerName);
 
     if (lostTasks != null) {
       // List of jobs which had any of their tasks fail on this tracker
-      Set<JobInProgress> jobsWithFailures = new HashSet<JobInProgress>(); 
+      Set<JobInProgress> jobsWithFailures = new HashSet<JobInProgress>();
+      // 对在该TaskTracker上的运行的每一个Task（在队列trackerToTaskMap中），进行如下2步处理：
       for (TaskAttemptID taskId : lostTasks) {
+        // 1. 从队列 taskidToTIPMap中取出TaskAttemptID对应的TaskInProgress tip结构，再根据tip获取到JobInProgress：JobInProgress job = tip.getJob();；
         TaskInProgress tip = taskidToTIPMap.get(taskId);
         JobInProgress job = tip.getJob();
 
         // Completed reduce tasks never need to be failed, because 
         // their outputs go to dfs
         // And completed maps with zero reducers of the job 
-        // never need to be failed. 
+        // never need to be failed.
+        // 2. 如果ReduceTask已经完成，以及具有0个ReduceTask的所有MapTask已经完成，则将这些Task放入到队列 trackerToMarkedTasksMap中, 即else中markCompletedTaskAttempt(trackerName, taskId)方法；
+        // 如果tip标记Task没有完成，或者满足条件tip.isMapTask() && !tip.isJobSetupTask() && job.desiredReduces() != 0，
+        // 检查Job运行状态，当job.getStatus().getRunState() == JobStatus.RUNNING || job.getStatus().getRunState() == JobStatus.PREP成立时，则该Task运行失败，并更新Task状态，
+        // 同时收集这类Job，放入集合Set<JobInProgress> jobsWithFailures中，后续对这些Job进行处理；
         if (!tip.isComplete() || 
             (tip.isMapTask() && !tip.isJobSetupTask() && 
              job.desiredReduces() != 0)) {
@@ -4806,6 +4818,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // Penalize this tracker for each of the jobs which   
       // had any tasks running on it when it was 'lost' 
       // Also, remove any reserved slots on this tasktracker
+      // 由于该TaskTracker被JobTracker标记为lost状态，则对上面收集到的jobsWithFailures集合中的Job，只要存在属于该Job的Task被分配到该TaskTracker上运行，
+      // 会通过累加计算在该TaskTracker上失败的Task计数，给该TaskTracker以惩罚，并释放所有在该TaskTracker上预留的Slot
       for (JobInProgress job : jobsWithFailures) {
         job.addTrackerTaskFailure(trackerName, taskTracker);
       }
@@ -4815,6 +4829,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
       // Purge 'marked' tasks, needs to be done  
       // here to prevent hanging references!
+      // 从队列TreeMap<String, Set<TaskAttemptID>> trackerToMarkedTasksMap中移除所有被标记完成的Task，同时更新JobTracker内部维护的如下3个队列：
+      // TreeMap<TaskAttemptID, String> taskidToTrackerMap、TreeMap<String, Set<TaskAttemptID>> trackerToTaskMap、Map<TaskAttemptID, TaskInProgress> taskidToTIPMap
       removeMarkedTasks(trackerName);
     }
   }
