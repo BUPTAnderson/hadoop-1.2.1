@@ -78,6 +78,7 @@ public class SkipBadRecords {
   private static final String AUTO_INCR_REDUCE_PROC_COUNT = 
     "mapred.skip.reduce.auto.incr.proc.count";
   private static final String OUT_PATH = "mapred.skip.out.dir";
+  // mapred.skip.map.max.skip.records：跳过坏记录条数（数据格式不对，空纪录等）。当遇到坏记录时，Hadoop尝试跳过的最多记录条数。
   private static final String MAPPER_MAX_SKIP_RECORDS = 
     "mapred.skip.map.max.skip.records";
   private static final String REDUCER_MAX_SKIP_GROUPS = 

@@ -370,6 +370,7 @@ public class JobInProgress {
                                   conf.getJobName(), queueName);
     this.memoryPerMap = conf.getMemoryForMapTask();
     this.memoryPerReduce = conf.getMemoryForReduceTask();
+    // 对应配置项mapred.max.tracker.failures：一个作业在某个tasktracker上失败的task个数超过该值，则该tasktracker被加到该job的blacklist中，从此不再往该tasktracker分配该job的task.
     this.maxTaskFailuresPerTracker = conf.getMaxTaskFailuresPerTracker();
     this.mapFailuresPercent = conf.getMaxMapTaskFailuresPercent();
     this.reduceFailuresPercent = conf.getMaxReduceTaskFailuresPercent();

@@ -149,16 +149,20 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // than X% above the average number of faults (averaged across all nodes
   // in cluster).  X is the blacklist threshold here; 0.3 would correspond
   // to 130% of the average, for example.
+  // 对应配置项：mapred.cluster.average.blacklist.threshold。
+  // 默认是0.5，如果一个bad tasktracker失败的task个数超过了所有tasktracker平均值的mapred.cluster.average.blacklist.threshold倍，则加入灰名单，不仅会自动加入黑名单。
   private double AVERAGE_BLACKLIST_THRESHOLD = 0.5;
 
   // Fault threshold (number occurring within TRACKER_FAULT_TIMEOUT_WINDOW)
   // to consider a task tracker bad enough to blacklist heuristically.  This
   // is functionally the same as the older "MAX_BLACKLISTS_PER_TRACKER" value.
+  // 对应配置项：mapred.max.tracker.blacklists。默认是4，bad tasktracker阈值，当一个tasktracker在时间窗口内失败个数超过该阈值，则认为该tasktracker是bad tasktracker
   private int TRACKER_FAULT_THRESHOLD; // = 4;
 
   // Width of overall fault-tracking sliding window (in minutes). (Default
   // of 24 hours matches previous "UPDATE_FAULTY_TRACKER_INTERVAL" value that
   // was used to forgive a single fault if no others occurred in the interval.)
+  // 对应配置项：mapred.jobtracker.blacklist.fault-timeout-window，默认是3小时，时间窗口，计算该时间内失败的task个数
   private int TRACKER_FAULT_TIMEOUT_WINDOW; // = 180 (3 hours)
 
   // Width of a single fault-tracking bucket (in minutes).
@@ -477,6 +481,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   ///////////////////////////////////////////////////////
   // Used to expire TaskTrackers that have gone down
   ///////////////////////////////////////////////////////
+  // 线程expireTracker Thread周期性的扫描队列trackerExpiryQueue，如果发现在某段时间（mapred.tasktracker.expiry.interval设置）内未汇报心跳，则将其从集群中移除。
+  // 如果发现该任务处在运行或者等待状态或者是未完成的Task或者Reduce Task数目不为零的作业中已经完成的Map Task，则将会放入其他节点重新运行。
   class ExpireTrackers implements Runnable {
     public ExpireTrackers() {
     }
@@ -509,6 +515,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               synchronized (trackerExpiryQueue) {
                 long now = clock.getTime();
                 TaskTrackerStatus leastRecent = null;
+                // 如果10分钟内没有收到心跳，则对TasTracker进行处理
                 while ((trackerExpiryQueue.size() > 0) &&
                        (leastRecent = trackerExpiryQueue.first()) != null &&
                        ((now - leastRecent.getLastSeen()) > TASKTRACKER_EXPIRY_INTERVAL)) {
@@ -519,6 +526,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                   String trackerName = leastRecent.getTrackerName();
                         
                   // Figure out if last-seen time should be updated, or if tracker is dead
+                  // 这里为什么用的是current.getStatus而不是leastRecent? 是因为trackerExpiryQueue放的初次初始化是的状态，
+                  // 而current.getStatus是从taskTrackers获取的TaskTracker，里面放的是TaskTracker的最新状态信息
                   TaskTracker current = getTaskTracker(trackerName);
                   TaskTrackerStatus newProfile = 
                     (current == null ) ? null : current.getStatus();
@@ -527,6 +536,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                   // tracker has already been destroyed.
                   if (newProfile != null) {
                     if ((now - newProfile.getLastSeen()) > TASKTRACKER_EXPIRY_INTERVAL) {
+                      // 最关键的步骤，移除过期的TaskTracker，见该方法的具体实现。
                       removeTracker(current);
                       // remove the mapping from the hosts list
                       String hostname = newProfile.getHost();
@@ -735,6 +745,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // FaultInfo:  data structure that tracks the number of faults of a single
   // TaskTracker, when the last fault occurred, and whether the TaskTracker
   // is blacklisted across all jobs or not.
+  // FaultInfo：跟踪单个TaskTracker的故障数，上次故障发生时的数据结构，以及TaskTracker是否被列入所有作业的黑名单。
   private static class FaultInfo {
     static final String FAULT_FORMAT_STRING =  "%d failures on the tracker";
     int[] numFaults;      // timeslice buckets
@@ -1648,6 +1659,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private int occupiedReduceSlots = 0;
   private int reservedMapSlots = 0;
   private int reservedReduceSlots = 0;
+  // 在updateTaskTrackerStatus方法中会初始化taskTrackers：taskTrackers.put(trackerName, taskTracker);
   private HashMap<String, TaskTracker> taskTrackers =
     new HashMap<String, TaskTracker>();
   Map<String,Integer>uniqueHostsMap = new ConcurrentHashMap<String, Integer>();
@@ -1674,6 +1686,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    * object has been updated in the taskTracker table, the latest status is 
    * reinserted.  Otherwise, we assume the tracker has expired.
    */
+  // TaskTracker汇报心跳后，JobTracker会将他放到过期队列：trackerExpiryQueue中
   TreeSet<TaskTrackerStatus> trackerExpiryQueue =
     new TreeSet<TaskTrackerStatus>(
                                    new Comparator<TaskTrackerStatus>() {
@@ -1988,6 +2001,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
     // values related to heuristic graylisting (a "fault" is a per-job
     // blacklisting; too many faults => node is graylisted across all jobs):
+    // 默认是3小时，时间窗口，计算该时间内失败的task个数
     TRACKER_FAULT_TIMEOUT_WINDOW =  // 3 hours
       conf.getInt("mapred.jobtracker.blacklist.fault-timeout-window", 3 * 60);
     TRACKER_FAULT_BUCKET_WIDTH =    // 15 minutes
@@ -2926,6 +2940,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    */
   private void addNewTracker(TaskTracker taskTracker) throws UnknownHostException {
     TaskTrackerStatus status = taskTracker.getStatus();
+    // 放入到过期队列中
     trackerExpiryQueue.add(status);
 
     //  Register the tracker if its not registered
@@ -3347,6 +3362,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
       }
     }
+    // taskTrackers中没有当前传入的trackerName信息，则说明是初次链接，初始化一些信息，并将TaskTracker加入到taskTrackers中
     if (status != null) {
       totalMaps += status.countMapTasks();
       totalReduces += status.countReduceTasks();
@@ -3371,6 +3387,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
       
       taskTracker.setStatus(status);
+      // 将TaskTracker加入到taskTrackers
       taskTrackers.put(trackerName, taskTracker);
       
       if (LOG.isDebugEnabled()) {
@@ -3498,6 +3515,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
           // This could now throw an UnknownHostException but only if the
           // TaskTracker status itself has an invalid name
+          // JobTracker将刚刚初始化的TaskTracker的TaskTrackerStatus对象放到过期队列：trackerExpiryQueue中(线程ExpireTrackers Thread会周期性的扫描队列trackerExpiryQueue)，并将其加入网络拓扑结构中。
+          // TaskTrackerStatus对象中有TaskTracker最近的心跳时间（TaskTrackerStatus.lastSeen)
           addNewTracker(taskTracker);
         }
       }
@@ -4900,6 +4919,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       LOG.info("Removing " + hostName + " from graylist");
       faultyTrackers.decrGraylistedTrackers(1);
     }
+    // JobTracker端与该TaskTracker相关的数据结构都需要更新，受到影响的Job和Task的数据结构也需要更新，具体处理流程见updateTaskTrackerStatus方法的实现
     updateTaskTrackerStatus(trackerName, null);
     statistics.taskTrackerRemoved(trackerName);
     getInstrumentation().decTrackers(1);

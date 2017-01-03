@@ -191,8 +191,10 @@ class TaskInProgress {
    */
   private void setMaxTaskAttempts() {
     if (isMapTask()) {
+      // 对应配置：mapred.map.max.attempts：每个map task最大尝试次数
       this.maxTaskAttempts = conf.getMaxMapAttempts();
     } else {
+      // 对应配置：mapred.reduce.max.attempts：每个reduce task最大尝试次数
       this.maxTaskAttempts = conf.getMaxReduceAttempts();
     }
     this.user = job.getUser();
