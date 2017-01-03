@@ -1028,10 +1028,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
      */
     void checkTrackerFaultTimeout(String hostName, long now) {
       synchronized (potentiallyFaultyTrackers) {
+        // 获取TaskTracker的Fault information
         FaultInfo fi = potentiallyFaultyTrackers.get(hostName);
         // getFaultCount() auto-rotates the buckets, clearing out the oldest
         // as needed, before summing the faults:
         if (fi != null && fi.getFaultCount(now) < TRACKER_FAULT_THRESHOLD) {
+          // 注意下面调用方法中参数 gray的值为true
           unBlacklistTracker(hostName, ReasonForBlackListing.EXCEEDING_FAILURES,
                              true, now);
         }
@@ -1049,11 +1051,13 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       Set<ReasonForBlackListing> rfbSet = fi.getReasonForBlacklisting(gray);
       boolean listed = gray? fi.isGraylisted() : fi.isBlacklisted();
       if (listed && rfbSet.contains(rfb)) {
+        // 从grapRfbMap中移除black listed reason
         if (fi.removeBlacklistedReason(rfb, gray)) {
           if (fi.getReasonForBlacklisting(gray).isEmpty()) {
             LOG.info("Un" + (gray? "gray" : "black") + "listing tracker : " +
                      hostName);
             if (gray) {
+              // 减少numGraylistedTrackers
               decrGraylistedTrackers(getNumTaskTrackersOnHost(hostName));
             } else {
               addHostCapacity(hostName);
@@ -3129,7 +3133,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     if (restarted) {
       faultyTrackers.markTrackerHealthy(status.getHost());
     } else {
-      // 检查是否可以指派任务在该TaskTracker上进行。
+      // 检查是否可以指派任务在该TaskTracker上进行。具体看方法的实现
       faultyTrackers.checkTrackerFaultTimeout(status.getHost(), now);
     }
 
