@@ -1051,20 +1051,22 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       Set<ReasonForBlackListing> rfbSet = fi.getReasonForBlacklisting(gray);
       boolean listed = gray? fi.isGraylisted() : fi.isBlacklisted();
       if (listed && rfbSet.contains(rfb)) {
-        // 从grapRfbMap中移除black listed reason
+        // 从grapRfbMap中移除reason for black Listing(rfb)
         if (fi.removeBlacklistedReason(rfb, gray)) {
           if (fi.getReasonForBlacklisting(gray).isEmpty()) {
             LOG.info("Un" + (gray? "gray" : "black") + "listing tracker : " +
                      hostName);
             if (gray) {
-              // 减少numGraylistedTrackers
+              // 减少graylisted trackers数值, getNumTaskTrackersOnHost方法是获取hostName对应的节点上运行的TaskTracker的个数
               decrGraylistedTrackers(getNumTaskTrackersOnHost(hostName));
             } else {
               addHostCapacity(hostName);
             }
+            // 清除grayRfbMap
             fi.unBlacklist(gray);
             // We have unblack/graylisted tracker, so tracker should definitely
             // be healthy. Check fault count; if zero, don't keep it in memory.
+            // 如果faultCount(now)==0,则remove the task tracker from the potentially-faulty list
             if (fi.getFaultCount(timeStamp) == 0) {
               potentiallyFaultyTrackers.remove(hostName);
             }
@@ -3133,7 +3135,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     if (restarted) {
       faultyTrackers.markTrackerHealthy(status.getHost());
     } else {
-      // 检查是否可以指派任务在该TaskTracker上进行。具体看方法的实现
+      // 检查是否可以指派任务在该TaskTracker上进行。需要检查该TaskTracker对应的黑名单和灰名单情况，如果TaskTracker状态一切正常，则恢复其正常被指派任务并运行Task的能力。具体看方法的实现
       faultyTrackers.checkTrackerFaultTimeout(status.getHost(), now);
     }
 
