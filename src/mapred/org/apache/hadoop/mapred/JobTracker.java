@@ -163,6 +163,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // of 24 hours matches previous "UPDATE_FAULTY_TRACKER_INTERVAL" value that
   // was used to forgive a single fault if no others occurred in the interval.)
   // 对应配置项：mapred.jobtracker.blacklist.fault-timeout-window，默认是3小时，时间窗口，计算该时间内失败的task个数
+  // 以滑窗方式检测一个主机是否应该放入黑名单，，如果在TRACKER_FAULT_TIMEOUT_WINDOW=3小时范围内，出现了大于TRACKER_FAULT_THRESHOLD=4次失败，则应该放入黑名单。
   private int TRACKER_FAULT_TIMEOUT_WINDOW; // = 180 (3 hours)
 
   // Width of a single fault-tracking bucket (in minutes).
@@ -874,6 +875,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
   private class FaultyTrackersInfo {
     // A map from hostName to its faults
+    // potentiallyFaultyTrackers(潜在有错误的Tracker。当有task运行失败时，就将其加入该队列中)集合中移除。
     private Map<String, FaultInfo> potentiallyFaultyTrackers = 
               new HashMap<String, FaultInfo>();
     // This count gives the number of blacklisted trackers in the cluster 
@@ -1099,16 +1101,19 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
      */
     void markTrackerHealthy(String hostName) {
       synchronized (potentiallyFaultyTrackers) {
+        // 从potentiallyFaultyTrackers(潜在有错误的Tracker。当有task运行失败时，就将其加入该队列中)集合中移除host
         FaultInfo fi = potentiallyFaultyTrackers.remove(hostName);
         if (fi != null) {
           // a tracker can be both blacklisted and graylisted, so check both
+          // 一个TaskTracker可能同时存在blacklisted和graylisted中
           if (fi.isGraylisted()) {
             LOG.info("Marking " + hostName + " healthy from graylist");
-            // getNumTaskTrackersOnHost可以看出，一个Host上可能存在多个TT的可能
+            // 更新numGraylistedTrackers。从getNumTaskTrackersOnHost可以看出，一个Host上可能存在多个TT的可能
             decrGraylistedTrackers(getNumTaskTrackersOnHost(hostName));
           }
           if (fi.isBlacklisted()) {
             LOG.info("Marking " + hostName + " healthy from blacklist");
+            // 更新numBlacklistedTrackers等数量以及totalMapTaskCapacity、totalReduceTaskCapacity的数量，见该方法的实现
             addHostCapacity(hostName);
           }
           // no need for fi.unBlacklist() for either one:  fi is already gone
@@ -1140,6 +1145,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       synchronized (taskTrackers) {
         int numTrackersOnHost = 0;
         // add the capacity of trackers on the host
+        // 从taskTrackers集合中获取节点hostName上所有的TaskTracker的TaskTrackerStatus
         for (TaskTrackerStatus status : getStatusesOnHost(hostName)) {
           int mapSlots = status.getMaxMapSlots();
           totalMapTaskCapacity += mapSlots;
@@ -1150,6 +1156,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           getInstrumentation().decBlackListedReduceSlots(reduceSlots);
         }
         uniqueHostsMap.put(hostName, numTrackersOnHost);
+        // 从blacklisted中减去
         decrBlacklistedTrackers(numTrackersOnHost);
       }
     }
@@ -1547,7 +1554,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   private String trackerIdentifier;
   long startTime;
   int totalSubmissions = 0;
+  // 该TaskTracker上最大Map Slot总数
   private int totalMapTaskCapacity;
+  // 该TaskTracker上最大Reduce Slot总数
   private int totalReduceTaskCapacity;
   private HostsFileReader hostsReader;
   
@@ -1659,9 +1668,13 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // Watch and expire TaskTracker objects using these structures.
   // We can map from Name->TaskTrackerStatus, or we can expire by time.
   //
+  // 全局计数器：MapTask总数
   int totalMaps = 0;
+  // 全局计数器： ReduceTask总数
   int totalReduces = 0;
+  // 全局计数器： 占用的Map Slot总数
   private int occupiedMapSlots = 0;
+  // 全局计数器： 占用的Reduce Slot总数
   private int occupiedReduceSlots = 0;
   private int reservedMapSlots = 0;
   private int reservedReduceSlots = 0;
@@ -3133,6 +3146,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 也就是从potentiallyFaultyTrackers队列中移除该Host，通过更新JT的numGraylistedTrackers/numBlacklistedTrackers数量以及JT的totalMapTaskCapacity和totalReduceTaskCapacity数量。
     // 至于如何检查TT健康状态，具体是根据JT上记录的关于TT执行任务失败的次数来判断的（具体不是太理解）。
     if (restarted) {
+      // 标记TaskTracker为Healthy状态，当TaskTracker重启了，然后再次连接JobTracker时，发送Heartbeat的过程中，会执行该流程。具体看该方法的实现
       faultyTrackers.markTrackerHealthy(status.getHost());
     } else {
       // 检查是否可以指派任务在该TaskTracker上进行。需要检查该TaskTracker对应的黑名单和灰名单情况，如果TaskTracker状态一切正常，则恢复其正常被指派任务并运行Task的能力。具体看方法的实现
@@ -3333,24 +3347,34 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    * @param status The new status for the task tracker
    * @return Was an old status found?
    */
+  // 更新TaskTracker状态
   private boolean updateTaskTrackerStatus(String trackerName,
                                           TaskTrackerStatus status) {
     TaskTracker tt = getTaskTracker(trackerName);
     // oldStatus == null,返回false；oldStatus !=null，返回true。
     TaskTrackerStatus oldStatus = (tt == null) ? null : tt.getStatus();
+    // TaskTracker不是首次连接
     if (oldStatus != null) {
+      // 下面4个是全局计数器，在当前计数器的基础上，减去上次汇报的报告中的数量（实际上是假定上次汇报的全部指标都已完成，如果没完成，再通过本次汇报的状态报告再加回去）
+      // MapTask总数
       totalMaps -= oldStatus.countMapTasks();
+      // ReduceTask总数
       totalReduces -= oldStatus.countReduceTasks();
+      // 占用的Map Slot总数
       occupiedMapSlots -= oldStatus.countOccupiedMapSlots();
+      // 占用的Reduce Slot总数
       occupiedReduceSlots -= oldStatus.countOccupiedReduceSlots();
       getInstrumentation().decRunningMaps(oldStatus.countMapTasks());
       getInstrumentation().decRunningReduces(oldStatus.countReduceTasks());
       getInstrumentation().decOccupiedMapSlots(oldStatus.countOccupiedMapSlots());
       getInstrumentation().decOccupiedReduceSlots(oldStatus.countOccupiedReduceSlots());
+      // is host in oldTaskTrackerStatus not black listed ? 如果TaskTracker没有被加入到黑名单中，还要更新下面两个JobTracker端全局计数器
       if (!faultyTrackers.isBlacklisted(oldStatus.getHost())) {
         int mapSlots = oldStatus.getMaxMapSlots();
+        // 该TaskTracker上最大Map Slot总数
         totalMapTaskCapacity -= mapSlots;
         int reduceSlots = oldStatus.getMaxReduceSlots();
+        // 该TaskTracker上最大Reduce Slot总数
         totalReduceTaskCapacity -= reduceSlots;
       }
       if (status == null) {
@@ -3369,6 +3393,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
     // taskTrackers中没有当前传入的trackerName信息，则说明是初次链接，初始化一些信息，并将TaskTracker加入到taskTrackers中
+    // 首先更新JobTracker内部维护的6个全局计数器：totalMaps、totalReduces、occupiedMapSlots、occupiedReduceSlots、totalMapTaskCapacity、totalReduceTaskCapacity，各个计数器具体含义见上面说明。
     if (status != null) {
       totalMaps += status.countMapTasks();
       totalReduces += status.countReduceTasks();
@@ -3378,6 +3403,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       getInstrumentation().addRunningReduces(status.countReduceTasks());
       getInstrumentation().addOccupiedMapSlots(status.countOccupiedMapSlots());
       getInstrumentation().addOccupiedReduceSlots(status.countOccupiedReduceSlots());
+      // is host in oldTaskTrackerStatus not black listed ?
       if (!faultyTrackers.isBlacklisted(status.getHost())) {
         int mapSlots = status.getMaxMapSlots();
         totalMapTaskCapacity += mapSlots;
@@ -3386,6 +3412,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
       boolean alreadyPresent = false;
       TaskTracker taskTracker = taskTrackers.get(trackerName);
+      // 如果TaskTracker是第一次汇报状态报告，则需要在JobTracker内部注册，构造一个org.apache.hadoop.mapreduce.server.jobtracker.TaskTracker对象（该TaskTracker对象是在JobTracker的视角看到的结构），
+      // 加入到队列HashMap<String, TaskTracker> taskTrackers中，同时还要计算该TaskTracker所在的host节点上TaskTracker进程的个数，更新队列Map<String, Integer> uniqueHostsMap。
       if (taskTracker != null) {
         alreadyPresent = true;
       } else {
@@ -3431,6 +3459,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                   " misc(r) = " + miscReduces); 
       }
 
+      // 如果TaskTracker是第一次汇报状态报告，还需更新uniqueHostsMap
       if (!alreadyPresent)  {
         Integer numTaskTrackersInHost = 
           uniqueHostsMap.get(status.getHost());
