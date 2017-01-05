@@ -1135,6 +1135,7 @@ public class JobInProgress {
   /**
    * Assuming {@link JobTracker} is locked on entry.
    */
+  // 更新Task状态
   public synchronized void updateTaskStatus(TaskInProgress tip, 
                                             TaskStatus status) {
 
@@ -1169,7 +1170,8 @@ public class JobInProgress {
         status.setRunState(TaskStatus.State.KILLED);
       }
     }
-    
+
+    // 调用tip的updateStatus方法，具体看该方法的实现
     boolean change = tip.updateStatus(status);
     if (change) {
       TaskStatus.State state = status.getRunState();

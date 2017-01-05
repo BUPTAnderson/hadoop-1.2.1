@@ -3557,8 +3557,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       }
     }
 
-    // 更新Task和NodeHealth信息，较复杂。
+    // 更新TaskTracker上所有Task状态
     updateTaskStatuses(trackerStatus);
+    // 更新NodeHealth信息
     updateNodeHealthStatus(trackerStatus, timeStamp);
     
     return true;
@@ -4706,6 +4707,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    * been updated.  Just process the contained tasks and any
    * jobs that might be affected.
    */
+  // 更新TaskTracker上所有Task状态
   void updateTaskStatuses(TaskTrackerStatus status) {
     String trackerName = status.getTrackerName();
     for (TaskStatus report : status.getTaskReports()) {
@@ -4713,10 +4715,14 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       TaskAttemptID taskId = report.getTaskID();
       
       // don't expire the task if it is not unassigned
+      // 如果一个Task的运行状态不为TaskStatus.State.UNASSIGNED，说明该Task还没有在TaskTracker上获得运行机会，则并不让该Task失败,等待下一次被调度分配给TaskTracker去运行
+      // （当一个Task指派给一个TaskTracker运行时，会首先在JobTracker端加入到一个超时列表中，由一个独立的线程JobTracker.ExpireLaunchingTasks去检测，该Task是否在给定的时间内（默认是10分钟 ）
+      // 是否在TaskTracker上启动而且一直没有报告状态，如果没有报告，则会将该Task标记为失败）
       if (report.getRunState() != TaskStatus.State.UNASSIGNED) {
         expireLaunchingTasks.removeTask(taskId);
       }
-      
+
+      // 根据Task的ID，获取到它对应的JobInProgress信息，如果没有获取到则将该Task对应的JobInProgress对象加入到cleanup列表Map<String, Set<JobID>> trackerToJobsToCleanup中，直接返回继续处理下一个TaskStatus报告；
       JobInProgress job = getJob(taskId.getJobID());
       if (job == null) {
         // if job is not there in the cleanup list ... add it
@@ -4730,7 +4736,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
         continue;
       }
-      
+
+      // 如果能够获取到对应的JobInProgress信息，则检查该JobInProgress中包含的Job是否设置初始化完成状态，如果没有设置，则直接将该Task加入到队列Map<String, Set<TaskAttemptID>> trackerToTasksToCleanup中，
+      // 等待JobTracker调度Kill掉该Task，直接返回继续处理下一个TaskStatus报告。
       if (!job.inited()) {
         // if job is not yet initialized ... kill the attempt
         synchronized (trackerToTasksToCleanup) {
@@ -4744,9 +4752,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         continue;
       }
 
+      // 检查该TaskStatus报告中对应的TaskAttemptID（taskId），是否在JobTracker端存在对应的TaskInProgress对象
       TaskInProgress tip = taskidToTIPMap.get(taskId);
       // Check if the tip is known to the jobtracker. In case of a restarted
       // jt, some tasks might join in later
+      // 很有可能JobTracker重启，内存中维护的Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中没有TaskInProgress对象，这时JobInProgress对象一定存在，
+      // 可以通过JobInProgress对象获取到该Task对应的TaskInProgress对象（因为在JobTracker端创建Job的时候，会分别创建4类TIP：map、reduce、cleanup、setup）
       if (tip != null || hasRestarted()) {
         if (tip == null) {
           tip = job.getTaskInProgress(taskId.getTaskID());
@@ -4759,10 +4770,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // or TaskInProgress can modify this object and
         // the changes should not get reflected in TaskTrackerStatus.
         // An old TaskTrackerStatus is used later in countMapTasks, etc.
+        // 更新Task状态, 具体看该方法的实现
         job.updateTaskStatus(tip, (TaskStatus)report.clone());
         JobStatus newStatus = (JobStatus)job.getStatus().clone();
         
         // Update the listeners if an incomplete job completes
+        // 触发已知的一组JobInProgressListener的jobUpdated方法，去更新Job状态。
         if (prevStatus.getRunState() != newStatus.getRunState()) {
           JobStatusChangeEvent event = 
             new JobStatusChangeEvent(job, EventType.RUN_STATE_CHANGED, 
@@ -4774,7 +4787,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                  + report.getTaskID());
       }
       
-      // Process 'failed fetch' notifications 
+      // Process 'failed fetch' notifications
+      // 根据TaskStatus能够获取到所有Fetch失败的Task，查询该Task对应的TaskInProgress对象，从而进一步通知JobInProgress对象，
+      // 根据设定的允许Task Fetch失败的最大次数限制，确定是否要让该Task失败，并更新TaskInProgress状态。
       List<TaskAttemptID> failedFetchMaps = report.getFetchFailedMaps();
       if (failedFetchMaps != null) {
         for (TaskAttemptID mapTaskId : failedFetchMaps) {
