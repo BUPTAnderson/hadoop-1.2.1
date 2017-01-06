@@ -1135,7 +1135,7 @@ public class JobInProgress {
   /**
    * Assuming {@link JobTracker} is locked on entry.
    */
-  // 更新Task状态
+  // 更新Task状态，主要是更新每个Task对应的在JobTracker端维护的TaskInProgress结构
   public synchronized void updateTaskStatus(TaskInProgress tip, 
                                             TaskStatus status) {
 
@@ -1152,6 +1152,7 @@ public class JobInProgress {
     // as SUCCEEDED.
     // User has requested to kill the task, but TT reported SUCCEEDED, 
     // mark the task KILLED.
+    // 如果心跳汇报的status中，Task运行状态为SUCCEEDED，当tip标识已经完成或标识被Kill掉，则统一修改status的运行状态为KILLED
     if ((wasComplete || tip.wasKilled(taskid)) && 
         (status.getRunState() == TaskStatus.State.SUCCEEDED)) {
       status.setRunState(TaskStatus.State.KILLED);
@@ -1162,6 +1163,8 @@ public class JobInProgress {
     // make the task's state FAILED/KILLED without launching cleanup attempt.
     // Note that if task is already a cleanup attempt, 
     // we don't change the state to make sure the task gets a killTaskAction
+    // 如果心跳汇报的status对应的TaskAttemptID不是cleanup task，当该TaskAttemptID 对应的JobInProgress表示Job已经完成，或失败，或被Kill掉，
+    // 那么status运行状态为FAILED_UNCLEAN则修改为FAILED，运行状态为KILLED_UNCLEAN则修改为KILLED
     if ((this.isComplete() || jobFailed || jobKilled) && 
         !tip.isCleanupAttempt(taskid)) {
       if (status.getRunState() == TaskStatus.State.FAILED_UNCLEAN) {
@@ -1171,8 +1174,11 @@ public class JobInProgress {
       }
     }
 
-    // 调用tip的updateStatus方法，具体看该方法的实现
+    // 调用tip的updateStatus方法，传入当前TaskTracker汇报的status状态对象，更新tip的状态。具体看该方法的实现
     boolean change = tip.updateStatus(status);
+    // 如果oldStatus与status不相等，即TaskAttemptID的状态已经发生变化，则会根据status的运行状态创建不同的TaskCompletionEvent事件（SUCCEEDED/FAILED/KILLED），
+    // 这些 TaskCompletionEvent事件会被加入到JobInProgress的taskCompletionEvents列表中，供JobClient查询或供JobTracker检索；或者执行相应的操作：如果运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN，
+    // 则tip中该TaskAttemptID标记为失败并更新相关结构，然后加入到mapCleanupTasks/reduceCleanupTasks列表中等待被清理，同时将该TaskAttemptID对应的数据从JobTracker的taskidToTIPMap、taskidToTrackerMap、trackerToTaskMap这3个队列中删除。
     if (change) {
       TaskStatus.State state = status.getRunState();
       // get the TaskTrackerStatus where the task ran 
@@ -1289,6 +1295,7 @@ public class JobInProgress {
     //
     // Update JobInProgress status
     //
+    // 根据构造的TaskCompletionEvent对象，并且如果status的运行状态为SUCCEEDED，则更新其对应的JobInProgress的状态为成功。
     if(LOG.isDebugEnabled()) {
       LOG.debug("Taking progress for " + tip.getTIPId() + " from " + 
                  oldProgress + " to " + tip.getProgress());

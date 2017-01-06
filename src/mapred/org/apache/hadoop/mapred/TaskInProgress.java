@@ -577,6 +577,10 @@ class TaskInProgress {
    * which might result in an overall TaskInProgress status update.
    * @return has the task changed its state noticably?
    */
+  // TaskInProgress会维护每个Task对应的TaskStatus对象oldStatus，并根据汇报的status对更新替换oldStatus。有3种情况不需要更新：
+  // 第一种是当status的运行状态不等于RUNNING/COMMIT_PENDING/FAILED_UNCLEAN/KILLED_UNCLEAN/UNASSIGNED中的任何一种状态；
+  // 第二种是status的运行状态为RUNNING、UNASSIGNED中的任意一种状态，并且oldStatus的运行状态为FAILED/KILLED/FAILED_UNCLEAN/KILLED_UNCLEAN/SUCCEEDED/COMMIT_PENDING中任意一种状态；
+  // 第三种是oldStatus的运行状态为FAILED/KILLED中的任意一种状态，这种情况会把该TaskAttemptID加入到队列TreeMap<TaskAttemptID, Boolean> tasksToKill中标识需要Kill掉该Task。
   synchronized boolean updateStatus(TaskStatus status) {
     TaskAttemptID taskid = status.getTaskID();
     String diagInfo = status.getDiagnosticInfo();
@@ -646,6 +650,7 @@ class TaskInProgress {
     // but finishTime has to be updated.
     
     // Don't fail tasks when JobTracker is in safe-mode
+    // 如果status的运行状态为FAILED状态，并且JobTracker在Safe模式下，则设置status的运行状态为KILLED。
     if (status.getRunState() == State.FAILED && jobtracker.isInSafeMode()) {
       LOG.info("JT is in safe-mode; marking " + taskid + " as KILLED");
       status.setRunState(State.KILLED);
