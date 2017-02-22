@@ -198,12 +198,14 @@ public class DistributedFileSystem extends FileSystem {
     return dfs.append(getPathName(f), bufferSize, progress, statistics);
   }
 
+  // 对hdfs的写操作要调用该方法
   public FSDataOutputStream create(Path f, FsPermission permission,
     boolean overwrite,
     int bufferSize, short replication, long blockSize,
     Progressable progress) throws IOException {
 
     statistics.incrementWriteOps(1);
+    // 由dfs.create()方法实现
     return new FSDataOutputStream
        (dfs.create(getPathName(f), permission,
                    overwrite, true, replication, blockSize, progress, bufferSize),

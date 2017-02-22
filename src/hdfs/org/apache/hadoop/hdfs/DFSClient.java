@@ -869,6 +869,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
     }
     FsPermission masked = permission.applyUMask(FsPermission.getUMask(conf));
     LOG.debug(src + ": masked=" + masked);
+    // 构造DFSOutputStream对象，进入该构造方法
     final DFSOutputStream result = new DFSOutputStream(src, masked,
         overwrite, createParent, replication, blockSize, progress, buffersize,
         conf.getInt("io.bytes.per.checksum", 512));
@@ -3447,6 +3448,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
 
       computePacketChunkSize(writePacketSize, bytesPerChecksum);
 
+      // 通过RPC调用namenode的create方法
       try {
         // Make sure the regular create() is done through the old create().
         // This is done to ensure that newer clients (post-1.0) can talk to
