@@ -692,6 +692,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
   static LocatedBlocks callGetBlockLocations(ClientProtocol namenode,
       String src, long start, long length) throws IOException {
     try {
+      // 通过getBlockLocations远程方法调用获取LocatedBlocks
       return namenode.getBlockLocations(src, start, length);
     } catch(RemoteException re) {
       throw re.unwrapRemoteException(AccessControlException.class,
@@ -732,6 +733,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
       ) throws IOException {
     checkOpen();
     //    Get block info from namenode
+    // DFSInputStream构造方法中会从namenode中获取block信息。
     return new DFSInputStream(src, buffersize, verifyChecksum);
   }
 
@@ -1964,6 +1966,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
       this.buffersize = buffersize;
       this.src = src;
       prefetchSize = conf.getLong("dfs.read.prefetch.size", prefetchSize);
+      // 调用openInfo()方法获取文件信息。
       openInfo();
     }
 
@@ -1972,6 +1975,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
      */
     synchronized void openInfo() throws IOException {
       for (int retries = 3; retries > 0; retries--) {
+        // 调用fetchLocatedBlocks方法获取文件对应的block信息
         if (fetchLocatedBlocks()) {
           // fetch block success
           return;
@@ -2000,6 +2004,7 @@ public class DFSClient implements FSConstants, java.io.Closeable {
 
     private boolean fetchLocatedBlocks() throws IOException,
         FileNotFoundException {
+      // LocatedBlocks对象中包含了文件对应的块信息以及块所在的host信息, 通过callGetBlockLocations方法获取
       LocatedBlocks newInfo = callGetBlockLocations(namenode, src, 0,
           prefetchSize);
       if (newInfo == null) {
