@@ -382,6 +382,7 @@ public class DataNode extends Configured
     this.dnRegistration = new DatanodeRegistration(machineName + ":" + tmpPort);
 
     // connect to name node
+    // 这里的namenode是一个动态代理对象， 通过调用RPC.waitForProxy()方法获取动态代理对象
     this.namenode = (DatanodeProtocol) 
       RPC.waitForProxy(DatanodeProtocol.class,
                        DatanodeProtocol.versionID,

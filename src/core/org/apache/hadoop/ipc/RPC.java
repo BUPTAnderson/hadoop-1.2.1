@@ -18,22 +18,6 @@
 
 package org.apache.hadoop.ipc;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.lang.reflect.Array;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
-import java.net.ConnectException;
-import java.net.InetSocketAddress;
-import java.net.SocketTimeoutException;
-import java.util.HashMap;
-import java.util.Map;
-
-import javax.net.SocketFactory;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configurable;
@@ -47,6 +31,22 @@ import org.apache.hadoop.security.SaslRpcServer;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.TokenIdentifier;
+
+import javax.net.SocketFactory;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.lang.reflect.Array;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.net.ConnectException;
+import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
+import java.util.HashMap;
+import java.util.Map;
 
 /** A simple RPC mechanism.
  *
@@ -226,6 +226,8 @@ public class RPC {
         startTime = System.currentTimeMillis();
       }
 
+      // 最最关键的就是下面这条语句。Invocation类也是RPC的静态嵌套类,并且实现了Writable接口。
+      // call方法将Invocation发送到RPC server端并等待返回结果。value就是RPC server端返回的结果。
       ObjectWritable value = (ObjectWritable)
         client.call(new Invocation(method, args), remoteId);
       if (logDebug) {
@@ -297,6 +299,7 @@ public class RPC {
       InetSocketAddress addr,
       Configuration conf
       ) throws IOException {
+    // 继续调用
     return waitForProxy(protocol, clientVersion, addr, conf, 0, Long.MAX_VALUE);
   }
 
@@ -332,6 +335,7 @@ public class RPC {
     IOException ioe;
     while (true) {
       try {
+        // 调用getProxy()方法，DataNode穿过来的 rpcTimeout=0
         return getProxy(protocol, clientVersion, addr, conf, rpcTimeout);
       } catch(ConnectException se) {  // namenode has not been started
         LOG.info("Server at " + addr + " not available yet, Zzzzz...");
@@ -371,6 +375,7 @@ public class RPC {
       long clientVersion, InetSocketAddress addr, Configuration conf,
       SocketFactory factory, int rpcTimeout) throws IOException {
     UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
+    // 继续调用
     return getProxy(protocol, clientVersion, addr, ugi, conf, factory, rpcTimeout);
   }
     
@@ -389,6 +394,7 @@ public class RPC {
       Class<? extends VersionedProtocol> protocol,
       long clientVersion, InetSocketAddress addr, UserGroupInformation ticket,
       Configuration conf, SocketFactory factory, int rpcTimeout) throws IOException {
+    // 继续调用
     return getProxy(protocol, clientVersion, addr, ticket, conf, factory,
         rpcTimeout, null, true);
   }
@@ -405,6 +411,10 @@ public class RPC {
     if (UserGroupInformation.isSecurityEnabled()) {
       SaslRpcServer.init(conf);
     }
+    // Invoker是RPC类的静态嵌套类，同时是InvocationHandler的子类，实际就是一个动态代理类
+    // 然后通过Proxy.newProxyInstance方法用新建的invoker实例构造了一个proxy返回，
+    // 将该proxy强制转换成VersionedProtocol， 通过proxy调用VersionedProtocol的方法时，
+    // 都有进去Invoker的invoke方法里面，在invoke方法里面分析请求发给PRC server端进行处理。
     final Invoker invoker = new Invoker(protocol, addr, ticket, conf, factory,
         rpcTimeout, connectionRetryPolicy);
     VersionedProtocol proxy = (VersionedProtocol)Proxy.newProxyInstance(
@@ -450,6 +460,7 @@ public class RPC {
       long clientVersion, InetSocketAddress addr, Configuration conf, int rpcTimeout)
       throws IOException {
 
+    // 继续调用
     return getProxy(protocol, clientVersion, addr, conf,
         NetUtils.getDefaultSocketFactory(conf), rpcTimeout);
   }
