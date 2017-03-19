@@ -2637,16 +2637,19 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   }
 
   /**
+   * TT执行一个Task
    * Start a new task.
    * All exceptions are handled locally, so that we don't mess up the
    * task tracker.
    * @throws InterruptedException 
    */
   void startNewTask(final TaskInProgress tip) throws InterruptedException {
+    // 创建一个线程
     Thread launchThread = new Thread(new Runnable() {
       @Override
       public void run() {
         try {
+          // 执行本地化操作
           RunningJob rjob = localizeJob(tip);
           tip.getTask().setJobFile(rjob.getLocalizedJobConf().toString());
           // Localization is done. Neither rjob.jobConf nor rjob.ugi can be null
@@ -2897,6 +2900,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         if (this.taskStatus.getRunState() == TaskStatus.State.UNASSIGNED) {
           this.taskStatus.setRunState(TaskStatus.State.RUNNING);
         }
+        // 如果是map task创建MapTaskRunner， 如果是reduce task创建ReduceTaskRunner
         setTaskRunner(task.createRunner(TaskTracker.this, this, rjob));
         this.runner.start();
         long now = System.currentTimeMillis();

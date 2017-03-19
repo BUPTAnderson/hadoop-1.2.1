@@ -957,13 +957,14 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       IOException{
         JobConf jobCopy = job;
         // 获取作业存放目录:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging
+        // ${mapreduce.jobtracker.staging.root.dir}的默认值是:/tmp/hadoop/mapred/staging
         // 实际是调用JobTracker端的getStagingAreaDir()方法
         Path jobStagingArea = JobSubmissionFiles.getStagingDir(JobClient.this,
             jobCopy);
-        // 获取下一个jobID
+        // 通过RPC调用JobTracker的方法，获取下一个jobID
         JobID jobId = jobSubmitClient.getNewJobId();
-        // 获取设置mapreduce.job.dir目录：
-        // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}
+        // 获取设置submitJobDir:${mapreduce.job.dir}目录：
+        // submitJobDir = ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}
         Path submitJobDir = new Path(jobStagingArea, jobId.toString());
         jobCopy.set("mapreduce.job.dir", submitJobDir.toString());
         JobStatus status = null;
@@ -1007,7 +1008,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           // Create the splits for the job 对job创建splits信息
           FileSystem fs = submitJobDir.getFileSystem(jobCopy);
           LOG.debug("Creating splits at " + fs.makeQualified(submitJobDir));
-          // 调用writeSplits, 获取输入文件的分片数，以及将分片信息上传到工作目录
+          // 调用writeSplits, 获取输入文件的分片数，以及将分片信息上传到工作目录:${mapreduce.job.dir}
           int maps = writeSplits(context, submitJobDir);
           // 这里可以确定，有多少个分片就有多少个map task任务.用户自己设置的map数量是没有用的.
           // 通过 -D mapred.map.tasks=num 来设置map task数量是没有用的。
@@ -1015,7 +1016,8 @@ public class JobClient extends Configured implements MRConstants, Tool  {
 
           // write "queue admins of the queue to which job is being submitted"
           // to job file.
-          // 下面4行代码是获得job对应的任务队列信息，这里涉及到hadoop的作业调度内容
+          // 下面4行代码是获得job对应的任务队列信息，如果过没有配置job的队列信息，默认返回default队列。
+          // 这里涉及到hadoop的作业调度内容，实际是通过RPC调用的JobTracker的getQueueAdmins(String queueName)方法
           String queue = jobCopy.getQueueName();
           AccessControlList acl = jobSubmitClient.getQueueAdmins(queue);
           jobCopy.set(QueueManager.toFullPropertyName(queue,
@@ -1089,7 +1091,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     InputFormat<?, ?> input =
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
-    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考默认的FileInputFormat的实现
+    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考默认的FileInputFormat的实现(org.apache.hadoop.mapreduce.lib.input.FileInputFormat)
     // FileInputFormat返回的是List<FileSplit>, FileSplit extends InputSplit
     // 如果不想用hadoop自带的FileInputFormat的默认getSplits方法实现, 可以自定义实现, 重写该默认实现逻辑来定义数据数据文件分片的规则.
     List<InputSplit> splits = input.getSplits(job);

@@ -18,18 +18,14 @@
 
 package org.apache.hadoop.mapreduce.lib.input;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
-import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.mapreduce.InputFormat;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
@@ -38,6 +34,10 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.security.TokenCache;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /** 
  * A base class for file-based {@link InputFormat}s.
@@ -268,12 +268,12 @@ public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
         while (((double) bytesRemaining)/splitSize > SPLIT_SLOP) {
           int blkIndex = getBlockIndex(blkLocations, length-bytesRemaining);
           // FileSplit(Path file, long start, long length, String[] hosts)
-          // 即记录每个分片的路径, 开始位置, 长度, 所在的hosts, 默认一个block对应一个split
+          // 即记录每个分片的路径, 开始位置, 分片大小, 所在的hosts, 默认一个block对应一个split
           splits.add(new FileSplit(path, length-bytesRemaining, splitSize, 
                                    blkLocations[blkIndex].getHosts()));
           bytesRemaining -= splitSize;
         }
-        
+        // 对于最后一个block，如果block实际大小< splitSize，按照下面的逻辑处理（这时候分片大小是剩余的大小，不是splitSize）
         if (bytesRemaining != 0) {
           splits.add(new FileSplit(path, length-bytesRemaining, bytesRemaining, 
                      blkLocations[blkLocations.length-1].getHosts()));

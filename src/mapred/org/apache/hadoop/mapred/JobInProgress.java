@@ -346,6 +346,7 @@ public class JobInProgress {
     this.conf = conf;
     this.jobId = jobid;
     this.numMapTasks = conf.getNumMapTasks();
+    // 获取用户配置的reduce的个数，有参数：mapred.reduce.tasks决定，默认值为1
     this.numReduceTasks = conf.getNumReduceTasks();
     this.maxLevel = NetworkTopology.DEFAULT_HOST_LEVEL;
     this.anyCacheLevel = this.maxLevel+1;
@@ -759,7 +760,7 @@ public class JobInProgress {
     
     //
     // read input splits and create a map per a split
-    // 读取jobsplitmetainfo文件, 创建TaskSplitMetaInfo信息
+    // 读取job.splitmetainfo文件, 创建TaskSplitMetaInfo信息, 之后是为每一个分片创建一个map task
     TaskSplitMetaInfo[] splits = createSplits(jobId);
     if (numMapTasks != splits.length) {
       throw new IOException("Number of maps in JobConf doesn't match number of " +
