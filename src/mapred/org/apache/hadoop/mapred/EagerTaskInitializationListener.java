@@ -17,6 +17,11 @@
  */
 package org.apache.hadoop.mapred;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.mapred.JobStatusChangeEvent.EventType;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,12 +29,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.mapred.JobStatusChangeEvent.EventType;
-import org.apache.hadoop.util.StringUtils;
 
 /**
  * A {@link JobInProgressListener} which initializes the tasks for a job as soon
@@ -103,7 +102,7 @@ class EagerTaskInitializationListener extends JobInProgressListener {
     this.ttm = ttm;
   }
 
-  // JobTacker初始化时会调用JobQueueTaskScheduler的start方法, start方法中会依次调用
+  // JobTracker通过main方法启动时会调用自己的offerService()方法，该方法中会调用JobQueueTaskScheduler的start方法, start方法中会依次调用
   // EagerTaskInitializationListener的setTaskTrackerManager和start方法
   // 下面方法的作用是监听jobInitQueue是否有job加入
   public void start() throws IOException {
@@ -137,6 +136,8 @@ class EagerTaskInitializationListener extends JobInProgressListener {
       jobInitQueue.add(job);
       // 对jobInitQueue按job的优先级进行排序
       resortInitQueue();
+      // jobInitManagerThread刚开始由于jobInitQueue为空，处于阻塞状态，现在不为空了，被唤醒，在start()方法中jobInitQueue是由JobInitManager构造的，下面的语句实际会触发
+      // JobInitManager的run()方法
       jobInitQueue.notifyAll();
     }
 

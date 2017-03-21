@@ -1036,7 +1036,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
           TokenCache.cleanUpTokenReferral(jobCopy);
 
           try {
-            // 将job的配置文件信息(jobConf对象)写入到job.xml文件中
+            // 将job的配置文件信息(jobConf对象)写入到job.xml文件中,供JobTracker查询
             // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.xml
             jobCopy.writeXml(out);
           } finally {

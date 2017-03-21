@@ -17,15 +17,15 @@
  */
 package org.apache.hadoop.mapred;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.server.jobtracker.TaskTracker;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * A {@link TaskScheduler} that keeps jobs in a queue in priority order (FIFO
@@ -41,9 +41,9 @@ class JobQueueTaskScheduler extends TaskScheduler {
   private float padFraction;
   
   public JobQueueTaskScheduler() {
-    // 初始化一个JobInProgressListener对象
+    // 初始化一个JobInProgressListener对象, 该对象中初始化了一个Map<JobSchedulingInfo,JobInProgress>,并且向该map中传入了一个FIFO的比较器。
     this.jobQueueJobInProgressListener = new JobQueueJobInProgressListener();
-    // 如果是ReflectionUtils通过反射构造该类, 之后还会调用setConf方法.
+    // 如果是ReflectionUtils通过反射构造该类, 之后还会调用setConf方法. 该方法中初始化了一个EagerTaskInitializationListener对象。
   }
 
   // JobTracker实例化后会调用offerService方法, 该方法中会调用下面的start方法

@@ -1772,7 +1772,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
 
   JobTracker(final JobConf conf, String identifier, Clock clock) 
   throws IOException, InterruptedException { 
-    //实例化QueueManager, QueueManager中会实例化队列
+    // 调用QueueManager的构造方法实例化QueueManager, QueueManager中会实例化队列,如果用户没有配置队列信息的话默认初始化一个名字为default的队列。
+    // 继续调用JobTracker的构造方法（里面包括各种初始化，包括TaskScheduler的初始化）
     this(conf, identifier, clock, new QueueManager(new Configuration(conf)));
   } 
   
@@ -2096,6 +2097,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     Class<? extends TaskScheduler> schedulerClass
       = conf.getClass("mapred.jobtracker.taskScheduler",
           JobQueueTaskScheduler.class, TaskScheduler.class);
+    // 调用ReflectionUtils类的newInstance方法，该方法中通过反射构造一个TaskScheduler对象，然后调用了TaskScheduler对象的setConf(conf)方法
     taskScheduler = (TaskScheduler) ReflectionUtils.newInstance(schedulerClass, conf);
     
     // Set service-level authorization security policy

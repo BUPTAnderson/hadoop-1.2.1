@@ -18,17 +18,16 @@
 
 package org.apache.hadoop.mapreduce;
 
-import java.io.IOException;
-import java.security.PrivilegedExceptionAction;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.RawComparator;
-import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapred.JobClient;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RunningJob;
 import org.apache.hadoop.mapred.TaskCompletionEvent;
+
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
 /**
  * The job submitter's view of the Job. It allows the user to configure the
@@ -546,11 +545,13 @@ public class Job extends JobContext {
     setUseNewAPI();
     
     // Connect to the JobTracker and submit the job
+    // connect()方法中会new JobClient(),并对JobClient做初始化操作，比如初始化jobSubmitClient
     connect();
-    // 调用JobClient的submitJobInternal方法
+    // 调用JobClient的submitJobInternal方法,该方法中会最终会通过jobSubmitClient把作业提交到JobTracker
     // 不管是新的mapreduce api还是旧的api, 都会调用submitJobInternal方法.
     info = jobClient.submitJobInternal(conf);
     super.setJobID(info.getID());
+    // 作业已经提交，将作业的状态置为RUNNING
     state = JobState.RUNNING;
    }
   
@@ -580,7 +581,8 @@ public class Job extends JobContext {
                                    ) throws IOException, InterruptedException,
                                             ClassNotFoundException {
     if (state == JobState.DEFINE) {
-      // 调用submit方法
+      // 在new Job(Configuration conf, String jobName)时, Job默认的属性JobState state = JobState.DEFINE，及job是定义状态
+      // 调用submit方法， 该方法中会将Job的state设置为JobState.RUNNING
       submit();
     }
     if (verbose) {

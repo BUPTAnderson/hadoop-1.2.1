@@ -99,6 +99,7 @@ class JobQueueJobInProgressListener extends JobInProgressListener {
   private Map<JobSchedulingInfo, JobInProgress> jobQueue;
   
   public JobQueueJobInProgressListener() {
+    // FIFO比较器
     this(new TreeMap<JobSchedulingInfo, 
                      JobInProgress>(FIFO_JOB_QUEUE_COMPARATOR));
   }
