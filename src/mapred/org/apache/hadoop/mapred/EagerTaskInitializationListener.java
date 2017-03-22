@@ -77,11 +77,11 @@ class EagerTaskInitializationListener extends JobInProgressListener {
     }
     
     public void run() {
-      // 调用JobTracker的initJob方法
+      // ttm为JobTracker，调用JobTracker的initJob方法
       ttm.initJob(job);
     }
   }
-  // 负责监听队列中有没有新的job加入, 如果有, 出发初始化线程new InitJob
+  // 负责监听队列中有没有新的job加入, 如果有, 触发初始化线程new InitJob
   private JobInitManager jobInitManager = new JobInitManager();
   private Thread jobInitManagerThread;
   private List<JobInProgress> jobInitQueue = new ArrayList<JobInProgress>();
@@ -97,12 +97,12 @@ class EagerTaskInitializationListener extends JobInProgressListener {
     threadPool = Executors.newFixedThreadPool(numThreads);
   }
 
-  // ttm实际为JobTracker
+  // JobQueueTaskScheduler的start方法中会调用该方法, 将ttm设置为为JobTracker
   public void setTaskTrackerManager(TaskTrackerManager ttm) {
     this.ttm = ttm;
   }
 
-  // JobTracker通过main方法启动时会调用自己的offerService()方法，该方法中会调用JobQueueTaskScheduler的start方法, start方法中会依次调用
+  // JobTracker通过main方法启动时会调用自己的offerService()方法，该方法中会调用JobQueueTaskScheduler的start方法, 该start方法中会依次调用
   // EagerTaskInitializationListener的setTaskTrackerManager和start方法
   // 下面方法的作用是监听jobInitQueue是否有job加入
   public void start() throws IOException {

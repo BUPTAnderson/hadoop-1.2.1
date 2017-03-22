@@ -19,6 +19,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.JobPriority;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -70,6 +71,8 @@ public class WordCount {
       System.err.println("Usage: wordcount <in> <out>");
       System.exit(2);
     }
+    // 设置作业的优先级
+    conf.set("mapred.job.priority", JobPriority.NORMAL.name());
     Job job = new Job(conf, "word count");
     job.setJarByClass(WordCount.class);
     job.setMapperClass(TokenizerMapper.class);

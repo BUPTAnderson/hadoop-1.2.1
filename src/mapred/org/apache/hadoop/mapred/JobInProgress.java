@@ -83,9 +83,11 @@ public class JobInProgress {
   }
 
   static final Log LOG = LogFactory.getLog(JobInProgress.class);
-  // JobProfile描述了一个Job的基本信息, 具体结构参见JobProfile类
+  // JobProfile描述了一个Job的基本信息, JobTracker调用JobInProgress的构造方法实例化JobInProgress会调用JobProfile(String user, org.apache.hadoop.mapreduce.JobID jobid,
+  // String jobFile, String url,
+  // String name, String queueName)构造profile，具体参看该构造方法
   JobProfile profile;
-  // JobStatus结构定义一个Job的当前状态信息, 具体结构参见JobStatus类
+  // JobStatus结构定义一个Job的当前状态信息, 初始化时job的状态是PREP:prepare, 具体结构参见JobStatus类
   JobStatus status;
   // job.xml在hdfs上的保存路径:${mapreduce.job.dir}/job.xml
   String jobFile = null;
@@ -142,7 +144,7 @@ public class JobInProgress {
   Map<Node, List<TaskInProgress>> nonRunningMapCache;
   
   // Map of NetworkTopology Node to set of running TIPs
-  // JobTracker端维护了某个Node上，当前正在运行的MapTask列表的信息。
+  // 维护了某个Node上，当前正在运行的MapTask列表的信息。
   Map<Node, Set<TaskInProgress>> runningMapCache;
 
   // A list of non-local, non-running maps
@@ -163,6 +165,7 @@ public class JobInProgress {
   Set<TaskInProgress> nonRunningReduces;
 
   // A set of running reduce TIPs
+  // 正在运行的reduce task
   Set<TaskInProgress> runningReduces;
   
   // A list of cleanup tasks for the map task attempts, to be launched
@@ -273,20 +276,33 @@ public class JobInProgress {
   private String historyFile = "";
   
   // Per-job counters
-  public static enum Counter { 
-    NUM_FAILED_MAPS, 
+  public static enum Counter {
+    //失败的MapTask数量
+    NUM_FAILED_MAPS,
+    //失败的ReduceTask数量
     NUM_FAILED_REDUCES,
+    // 所有启动的 MapTask数量
     TOTAL_LAUNCHED_MAPS,
+    // 所有启动的 ReduceTask数量
     TOTAL_LAUNCHED_REDUCES,
+    // 其他Local MapTask数量
     OTHER_LOCAL_MAPS,
+    // DATA_LOCAL的MapTask数量
     DATA_LOCAL_MAPS,
+    // NODEGROUP_LOCAL的MapTask数量
     NODEGROUP_LOCAL_MAPS,
+    // RACK_LOCAL的MapTask数量
     RACK_LOCAL_MAPS,
+    // 被占用的Map slot的“Slot个数 * (结束时间 – 开始时间)”
     SLOTS_MILLIS_MAPS,
+    // 被占用的Reduce slot：“Slot个数 * (结束时间 – 开始时间)”
     SLOTS_MILLIS_REDUCES,
+    // 空闲Map Slot：“(当前时间 – 开始时间) * Slot个数”
     FALLOW_SLOTS_MILLIS_MAPS,
+    // 空闲Reduce Slot：“(当前时间 – 开始时间) * Slot个数”
     FALLOW_SLOTS_MILLIS_REDUCES
   }
+  // Counters包含了一组计数器，用来跟踪一个JOb的运行的信息，具体结构参考类Counters的定义
   private Counters jobCounters = new Counters();
     
   // Maximum no. of fetch-failure notifications after which
@@ -361,7 +377,7 @@ public class JobInProgress {
     this.nonRunningReduces = new TreeSet<TaskInProgress>(failComparator);
     this.runningReduces = new LinkedHashSet<TaskInProgress>();
     this.resourceEstimator = new ResourceEstimator(this);
-    // 初始化是job的状态是PREP:prepare
+    // 初始化时job的状态是PREP:prepare
     this.status = new JobStatus(jobid, 0.0f, 0.0f, JobStatus.PREP);
     this.status.setUsername(conf.getUser());
     // 获取配置的队列名, 默认队列名为default
@@ -760,7 +776,7 @@ public class JobInProgress {
     
     //
     // read input splits and create a map per a split
-    // 读取job.splitmetainfo文件, 创建TaskSplitMetaInfo信息, 之后是为每一个分片创建一个map task
+    // 读取job.splitmetainfo文件, 创建TaskSplitMetaInfo信息(不是SplitMetaInfo), 之后是为每一个分片创建一个map task
     TaskSplitMetaInfo[] splits = createSplits(jobId);
     if (numMapTasks != splits.length) {
       throw new IOException("Number of maps in JobConf doesn't match number of " +
@@ -784,7 +800,8 @@ public class JobInProgress {
     // 每个split创建一个map task
     maps = new TaskInProgress[numMapTasks];
     for(int i=0; i < numMapTasks; ++i) {
-      // inputLength指job输入数据的大小
+      // inputLength指job输入数据的大小（即job要处理的所有分片大小之和）
+      // 一个map处理一个split
       inputLength += splits[i].getInputDataLength();
       maps[i] = new TaskInProgress(jobId, jobFile, 
                                    splits[i], 
@@ -807,8 +824,7 @@ public class JobInProgress {
 
     //
     // Create reduce tasks
-    // 创建指定数量的reduce task, 其数目由用户通过参数 mapred.reduce.tasks(默认为1)指定
-    //
+    // 创建指定数量的reduce task, 其数目由用户通过参数 mapred.reduce.tasks(默认为1)指定, JobTracker在new JobInProgress时会从conf中获取并设置该值
     this.reduces = new TaskInProgress[numReduceTasks];
     for (int i = 0; i < numReduceTasks; i++) {
       reduces[i] = new TaskInProgress(jobId, jobFile, 
@@ -832,6 +848,7 @@ public class JobInProgress {
     // create cleanup two cleanup tips, one map and one reduce.
     // 创建2个cleanup task, 每个Job的MapTask和ReduceTask各对应一个,
     // 是用来清理map task/reduce task, 比如删除作业运行过程中用到的一些临时目录, 该任务运行成功后, 作业由Running状态变成succeeded状态
+    // setup task和cleanup task运行也需要申请slot来运行，map setup运行需要占用Map Slot，而reduce setup运行需要占用Reduce Slot，对于cleanup task也是类似的
     cleanup = new TaskInProgress[2];
 
     // cleanup map tip. This map doesn't use any splits. Just assign an empty

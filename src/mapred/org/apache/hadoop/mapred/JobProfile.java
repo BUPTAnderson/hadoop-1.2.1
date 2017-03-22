@@ -17,15 +17,15 @@
  */
 package org.apache.hadoop.mapred;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.net.URL;
-
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.net.URL;
 
 /**************************************************
  * A JobProfile is a MapReduce primitive.  Tracks a job,
@@ -92,11 +92,17 @@ public class JobProfile implements Writable {
   public JobProfile(String user, org.apache.hadoop.mapreduce.JobID jobid, 
                     String jobFile, String url,
                     String name, String queueName) {
+    // 提交该Job的用户名称，如：hadp
     this.user = user;
+    // 唯一标识一个Job的ID，例如：job_201703221855_0003
     this.jobid = JobID.downgrade(jobid);
+    // 该Job所对应的配置文件，例如：/tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.xml
     this.jobFile = jobFile;
+    // 在Web UI页面上查看该Job信息的链接，例如：http://jobtracker.hadoopcluster.com:8080/jobdetails.jsp?jobid=job_200912121733_0002
     this.url = url;
+    // 提交Job的用户给该Job设置的名称字符串，例如：WordCount
     this.name = name;
+    // 提交的该Job所在的队列的名称，例如：default
     this.queueName = queueName;
   }
   

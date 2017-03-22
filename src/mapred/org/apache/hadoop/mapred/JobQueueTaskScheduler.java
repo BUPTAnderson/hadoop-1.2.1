@@ -43,16 +43,19 @@ class JobQueueTaskScheduler extends TaskScheduler {
   public JobQueueTaskScheduler() {
     // 初始化一个JobInProgressListener对象, 该对象中初始化了一个Map<JobSchedulingInfo,JobInProgress>,并且向该map中传入了一个FIFO的比较器。
     this.jobQueueJobInProgressListener = new JobQueueJobInProgressListener();
-    // 如果是ReflectionUtils通过反射构造该类, 之后还会调用setConf方法. 该方法中初始化了一个EagerTaskInitializationListener对象。
+    // JobTracker通过main函数启动时是调用ReflectionUtils通过反射构造该类, 之后还会调用setConf方法. 该方法中初始化了一个EagerTaskInitializationListener对象。
+    // 调用完setConf方法后，JobTracker还会调用JobQueueTaskScheduler的setTaskTrackerManager方法 setTaskTrackerManager(jobTracker)
+    // JobInProgressListener是用来监听由JobClient端提交后在JobTracker端Job（在JobTracker端维护的JobInProgress）生命周期变化，并触发相应事件（jobAdded/jobUpdated/jobRemoved）
   }
 
   // JobTracker实例化后会调用offerService方法, 该方法中会调用下面的start方法
   @Override
   public synchronized void start() throws IOException {
     super.start();
-    // taskTrackerManager就是jobtracker实例
+    // JobTracker通过main方法启动的过程中调用JobQueueTaskScheduler的构造方法初始化JobQueueTaskScheduler，然后调用JobQueueTaskScheduler的setConf方法
+    // 让后调用JobQueueTaskScheduler的setTaskTrackerManager方法（该方法继承自父类）将taskTrackerManager设置为JobTracker实例
     // 这行程序的作用就是为jobTracker添加jobListener, 用来监听job的.
-    // 实际是调用jobTracker的jobInProgressListeners集合的add(listener)方法
+    // 实际是调用jobTracker的jobInProgressListeners集合的add(listener)方法，eagerTaskInitializationListener通过start方法已经处于监听状态
     taskTrackerManager.addJobInProgressListener(jobQueueJobInProgressListener);
     eagerTaskInitializationListener.setTaskTrackerManager(taskTrackerManager);
     eagerTaskInitializationListener.start();

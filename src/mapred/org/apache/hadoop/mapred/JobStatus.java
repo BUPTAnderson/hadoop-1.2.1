@@ -55,6 +55,7 @@ public class JobStatus implements Writable, Cloneable {
   public static final int PREP = 4;
   public static final int KILLED = 5;
 
+  // 该Job设置的ACL（访问控制列表）列表信息
   private Map<JobACL, AccessControlList> jobACLs =
     new HashMap<JobACL, AccessControlList>();
 

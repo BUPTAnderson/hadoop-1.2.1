@@ -961,7 +961,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
         // 实际是调用JobTracker端的getStagingAreaDir()方法
         Path jobStagingArea = JobSubmissionFiles.getStagingDir(JobClient.this,
             jobCopy);
-        // 通过RPC调用JobTracker的方法，获取下一个jobID
+        // 通过RPC调用JobTracker的方法，获取下一个jobID, jobID的格式是：job_200912121733_0002 job_yyyyMMddHHmm_0002
         JobID jobId = jobSubmitClient.getNewJobId();
         // 获取设置submitJobDir:${mapreduce.job.dir}目录：
         // submitJobDir = ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}

@@ -18,43 +18,10 @@
 package org.apache.hadoop.mapred;
 
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.Writer;
-import java.lang.management.ManagementFactory;
-import java.net.BindException;
-import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
-import java.security.PrivilegedExceptionAction;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.Vector;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -71,8 +38,6 @@ import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.ipc.RPC.VersionMismatch;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.mapred.AuditLogger.Constants;
-import org.apache.hadoop.mapred.JobHistory.Keys;
-import org.apache.hadoop.mapred.JobHistory.Values;
 import org.apache.hadoop.mapred.JobInProgress.KillInterruptedException;
 import org.apache.hadoop.mapred.JobStatusChangeEvent.EventType;
 import org.apache.hadoop.mapred.QueueManager.QueueACL;
@@ -114,6 +79,39 @@ import org.apache.hadoop.util.ServicePlugin;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.VersionInfo;
 import org.mortbay.util.ajax.JSON;
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.Writer;
+import java.lang.management.ManagementFactory;
+import java.net.BindException;
+import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
+import java.security.PrivilegedExceptionAction;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /*******************************************************
  * JobTracker is the central location for submitting and 
@@ -2091,7 +2089,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                 NetworkTopology.class), conf);
 
     // Create the taskScheduler
-    // 实例化taskScheduler, 具体使用的任务调度方案则是由mapred.jobtracker.taskScheduler设置，
+    // 实例化taskScheduler, 具体使用的任务调度方案则是由mapred.jobtracker.taskScheduler设置，该参数在mapred-site.xml中配置，用户可配置自己的属性值来覆盖默认的调度策略。
     // 默认是使用JobQueueTaskScheduler调度器，也就是遵循FIFO原则的作业调度器。同时hadoop还自带了FairScheduler和CapacityScheduler两个调度器
     // TaskScheduler的实现类的构造方法中都有一个设置JobListener的初始化操作
     Class<? extends TaskScheduler> schedulerClass
@@ -3806,7 +3804,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   public synchronized JobID getNewJobId() throws IOException {
     // Check for JobTracker operational state
     checkJobTrackerState();
-    
+
+    // getTrackerIdentifier方法获取属性trackerIdentifier的值，JobTracker在调用main方法进行初始化时会调用generateNewIdentifier方法设置trackerIdentifier的值
+    // trackerIdentifier的值是对new Date()格式化(yyyyMMddHHmm)的字符串(new Date()实际为启动JobTracker的时间)， 这样就构造了JobID实例，JobID的toString方法是 job_jtIdentifier_0001
+    // 'job'是固定值，两个'_'是固定的分隔符，jtIdentifier就是传入的yyyyMMddHHmm格式的字符串，0001是将nextJobId格式化成4位，不足在前面补0，但是当nextJobId大于9999后，就会直接显示该数字，
+    // 比如nextJobId=10001,则jobid可能为：job_200912121733_10001
     return new JobID(getTrackerIdentifier(), nextJobId++);
   }
   
@@ -3884,7 +3886,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // 将job tokens写入文件: ${mapred.system.dir}/jobId/jobToken
       generateAndStoreJobTokens(jobId, ts);
       // 为job实例化一个JobInProgress对象, 这个对象将会对job以后的所有情况进行负责，如初始化，执行等
-      // jobInProgress 指的是运行中的job, client端提交的每一个job都会封装一个对应的JobInProgress对象
+      // client端提交的每一个job都会封装一个对应的JobInProgress对象, 通过new JobInProgress构造的job初始状态是JobStatus.PREP
       // JobTracker通过维护Map<JobID, JobInProgress> jobs来维护各个job的整个生命周期(创建执行清理)
       job = new JobInProgress(this, this.conf, jobInfo, 0, ts);
     } catch (Exception e) {
@@ -4169,7 +4171,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     return secretManager.renewToken(token, user);
   }  
 
-  // 提交job后, Listener会调用该方法
+  // 提交job后, Listener会调用该方法初始化Job
   public void initJob(JobInProgress job) {
     if (null == job) {
       LOG.info("Init on null job is not valid");
