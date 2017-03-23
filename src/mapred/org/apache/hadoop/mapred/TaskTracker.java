@@ -1950,7 +1950,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    */
   HeartbeatResponse transmitHeartBeat(long now) throws IOException {
     // Send Counters in the status once every COUNTER_UPDATE_INTERVAL
-    // 根据sendCounters的间隔判断此次心跳是否发送计算器信息。
+    // 根据sendCounters的间隔判断此次心跳是否发送计算器信息(默认一分钟发送一次)。
     boolean sendCounters;
     if (now > (previousUpdate + COUNTER_UPDATE_INTERVAL)) {
       sendCounters = true;
@@ -2001,7 +2001,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           status.countOccupiedReduceSlots() < maxReduceSlots) && 
          acceptNewTasks);
       // minSpaceStart由mapred.local.dir.minspacestart参数决定,默认是0，即无限制，
-      // mapred.local.dir.minspacestart ： 这个选项用来告诉tasktracker，当某个mapred.local.dir 写入点中最大的目录的磁盘剩余空间小于这个配置的值的时候，该 TT就不再接受新的task。
+      // mapred.local.dir.minspacestart ： 这个选项用来告诉tasktracker，当某个mapred.local.dir 写入点中最大的目录的磁盘剩余空间小于这个配置的值的时候，该TT就不再接受新的task。
       // 接下来可以看到该值能够影响acceptNewTasks值。当acceptNewTasks==true时，即初步判断可以接收新任务，下面通过方法enoughFreeSpace() 再次根据localMinSpaceStart判断是否可接收新任务。
       localMinSpaceStart = minSpaceStart;
     }

@@ -34,6 +34,7 @@ import java.util.*;
  * This is NOT a public interface!
  *
  * TaskTrackerStatus是MapReduce原语。 在TaskTracker上保留信息。 JobTracker为它所知道的每个唯一TaskTracker维护一组最新的TaskTrackerStatus对象
+ * TaskTrackerStatus对象要在网络间进行序列化传输，所以实现了接口org.apache.hadoop.io.Writable
  **************************************************/
 public class TaskTrackerStatus implements Writable {
   public static final Log LOG = LogFactory.getLog(TaskTrackerStatus.class);
@@ -57,7 +58,7 @@ public class TaskTrackerStatus implements Writable {
   // 在TaskTracker节点上，配置的mapred.local.dir目录失败的个数
   int dirFailures;
   // 正在运行的(未完成的 RUNNING或者UNASSIGNED状态，或者处于CleanerUp阶段)各个任务运行状态
-  // TaskStatus:在该TaskTracker上，当前task的状态，它有分为MapTaskStatus和ReduceTaskStatus，
+  // TaskStatus:在该TaskTracker上，当前task的状态，它又分为MapTaskStatus和ReduceTaskStatus，
   // 主要包含如下内容：taskid（TaskAttemptID）、运行进度百分比、运行状态、诊断信息、所在TaskTracker名称、slot数、开始时间、结束时间、执行阶段（Phase）、一组计数器信息
   List<TaskStatus> taskReports;
 

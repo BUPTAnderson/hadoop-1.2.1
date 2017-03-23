@@ -229,7 +229,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // JobTracker维护了一组JobInProgressListener监听器，在JobTracker运行过程中，发生某些事件会触发注册的JobInProgressListener的执行。
   // 比如，JobClient提交一个Job，JobTracker端会触发对应的JobInProgressListener调用jobAdded()初始化该Job；
   // 比如，Job执行过程中状态发生变更，会触发JobInProgressListener调用jobUpdated()执行；
-  // 比如，Job运行完成，会触发obInProgressListener调用jobRemoved()执行。
+  // 比如，Job运行完成，会触发jobInProgressListener调用jobRemoved()执行。
   // JobTracker初始化时会创建TaskScheduler，而启动TaskScheduler的时候，会把TaskScheduler所维护的JobInProgressListener添加到jobInProgressListeners列表中。
   private final List<JobInProgressListener> jobInProgressListeners =
     new CopyOnWriteArrayList<JobInProgressListener>();
@@ -1599,7 +1599,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   TreeMap<String, ArrayList<JobInProgress>> userToJobsMap =
     new TreeMap<String, ArrayList<JobInProgress>>();
     
-  // (trackerID --> list of jobs to cleanup)
+  // (TaskTracker ID --> list of jobs to cleanup)
   // 用来跟踪某个TaskTracker上运行的Job集合的数据结构。
   // 当一个Job已经运行完成，TaskTracker需要知道哪些运行在该节点上的Job已经完成，并等待通知进行清理，这时会在JobTracker端检索该Map，取出该TaskTracker对应的需要进行清理的Job的集合。
   // 另外，还有一种情况，当JobTracker一段时间内没有收到TaskTracker发送的心跳报告，这时会将该TaskTracker对应的Job集合从trackerToJobsToCleanup中删除，
@@ -1607,41 +1607,42 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   Map<String, Set<JobID>> trackerToJobsToCleanup = 
     new HashMap<String, Set<JobID>>();
   
-  // (trackerID --> list of tasks to cleanup)
+  // (TaskTracker ID --> list of tasks to cleanup)
   // 用来跟踪某个TaskTracker上运行的Task集合的数据结构。
   // 当Job运行完成（成功或者失败）后，一个TaskTracker需要知道属于该Job的哪些Task运行在该TaskTracker上，需要对这些Task进行清理。
   // JobTracker端会查询出这类Task，并通过心跳的响应，向对应的TaskTracker发送KillTaskAction指令，通知TaskTracker清理这些Task运行时生成的临时文件等。
   Map<String, Set<TaskAttemptID>> trackerToTasksToCleanup = 
     new HashMap<String, Set<TaskAttemptID>>();
   
-  // All the known TaskInProgress items, mapped to by taskids (taskid->TIP)
+  // All the known TaskInProgress items, mapped to by taskids ( TAID(TaskAttemptID) --> TaskInProgress(TIP) )
   // TaskAttemptID用来标识一个MapTask或一个ReduceTask，通过该数据结构可以根据TaskAttemptID获取到MapTask/ReduceTask的运行信息，也就是TaskInProgress对象。
   // 当需要检索MapTask/ReduceTask，或者对JobTracker端所维护的该Task的状态信息进行更新的时候，需要通过该数据结构获取到。
   Map<TaskAttemptID, TaskInProgress> taskidToTIPMap =
     new TreeMap<TaskAttemptID, TaskInProgress>();
   // This is used to keep track of all trackers running on one host. While
   // decommissioning the host, all the trackers on the host will be lost.
+  // (TaskTracker HOST --> TaskTracker)
   // 一台主机上，可能运行着多个TaskTracker进程，该数据结构用来维护host到TaskTracker集合的映射关系。
   // 如果一个host被加入了黑名单，则该host上面的所有TaskTracker都无法接收任务。
   Map<String, Set<TaskTracker>> hostnameToTaskTracker = 
     Collections.synchronizedMap(new TreeMap<String, Set<TaskTracker>>());
   
 
-  // (taskid --> trackerID)
+  // ( TAID(TaskAttemptID) --> TaskTracker ID )
   // 维护TaskAttemptID到TaskTracker的映射关系，可以通过一个Task的ID获取到该Task运行在哪个TaskTracker上。
   TreeMap<TaskAttemptID, String> taskidToTrackerMap = new TreeMap<TaskAttemptID, String>();
 
-  // (trackerID->TreeSet of taskids running at that tracker)
+  // ( TaskTracker ID --> TreeSet of taskids running at that tracker)
   // 某个TaskTracker上都运行着哪些Task，通过该数据结构来维护这种映射关系。
   TreeMap<String, Set<TaskAttemptID>> trackerToTaskMap =
     new TreeMap<String, Set<TaskAttemptID>>();
 
-  // (trackerID -> TreeSet of completed taskids running at that tracker)
+  // ( TaskTracker ID -> TreeSet of completed taskids running at that tracker)
   // 在某个TaskTracker上都运行完成了哪些Task，通过该数据结构来维护这种映射关系。
   TreeMap<String, Set<TaskAttemptID>> trackerToMarkedTasksMap =
     new TreeMap<String, Set<TaskAttemptID>>();
 
-  // (trackerID --> last sent HeartBeatResponse)
+  // ( TaskTracker ID --> last sent HeartBeatResponse)
   // TaskTracker会周期性地向JobTracker发送心跳报告，最近一次发送的心跳报告，JobTracker会给其一个响应，最后的这个响应的数据保存在该数据结构中。
   Map<String, HeartbeatResponse> trackerToHeartbeatResponseMap = 
     new TreeMap<String, HeartbeatResponse>();
@@ -1839,6 +1840,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // clean up the system dir, which will only work if hdfs is out of 
         // safe mode
         if(systemDir == null) {
+          // mapred.system.dir为mapreduce共享目录，不能为本地目录，只能为HDFS目录，可以填 写相对目录如：mapred-system-dir，假设以hadp登录系统，并启动hadoop
+          // $ ./hadoop fs -ls /user/hadp  /user/hadp/mapred-system-dir
           systemDir = new Path(getSystemDir());    
         }
         try {
@@ -1873,7 +1876,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
           }
           
           // Check if there are jobs to be recovered
-          // 判断是否需要进行作业恢复，需要则直接退出（这里还没有开始作业恢复，现在只是在做初始化相关的工作），不需要则会执行删除systemDir命令，并重新创建systemDir目录
+          // 判断是否需要进行作业恢复，hasRestarted = shouldRecover， 而shouldRecover有上面的recoveryManager.checkAndAddJob(status);决定。
+          // 需要则直接退出（这里还没有开始作业恢复，现在只是在做初始化相关的工作），不需要则会执行删除systemDir命令，并重新创建systemDir目录
           hasRestarted = recoveryManager.shouldRecover();
           if (hasRestarted) {
             break; // if there is something to recover else clean the sys dir
@@ -3164,19 +3168,18 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // there is something seriously wrong if the JobTracker has
       // no record of the 'previous heartbeat'; if so, ask the 
       // tasktracker to re-initialize itself.
-      // 如果prevHeartbeatResponse == null，即TT不是首次连接JT，而且JT中并没有该TT之前的心跳请求信息，
-      // 表明This is the first heartbeat from the old tracker to the newly started JobTracker
+      // 如果prevHeartbeatResponse == null，即TT不是首次连接JT，而且JT中并没有该TT之前的心跳请求信息，说明是JobTracker重启了(这时候要判断是否有job需要恢复)
       if (prevHeartbeatResponse == null) {
         // This is the first heartbeat from the old tracker to the newly started JobTracker
-        // 判断hasRestarted是否为true，hasRestarted是在JT初始化(main-> tracker.offerService -> initialize() -> hasRestarted = recoveryManager.shouldRecover() )
-        // 即根据recoveryManager的shouldRecover来决定的
-        // 所以当需要进行job恢复时，addRestartInfo会被设置为true，即需要TT进行job恢复操作，同时从recoveryManager的recoveredTrackers队列中移除该TT。
-        // 如果不需要进行任务恢复，则直接返回HeartbeatResponse，并对TT下重新初始化指令，注意此处返回的responseId还是原来的responseId，即responseId不变。
-        if (hasRestarted()) {
+        // 判断hasRestarted是否为true，hasRestarted是在JT初始化(main-> tracker.offerService -> initialize()方法中来决定的，而
+        // initialize方法中recoveryManager.checkAndAddJob(status) 会判断systemDir是否有job需要恢复，如果有shouldRecover = true;然后设置hasRestarted = recoveryManager.shouldRecover();
+        // 所以当有job需要恢复时，hasRestarted()=true，addRestartInfo会被设置为true，即需要TT进行job恢复操作，同时从recoveryManager的recoveredTrackers队列中移除该TT。
+        // 如果没有job需要恢复，则直接返回HeartbeatResponse，并对TT下重新初始化指令，注意此处返回的responseId还是TT发过来的responseId，即responseId不变。
+        if (hasRestarted()) {// 1. JobTracker重启了，这时候需要TaskTracker进行job恢复
           addRestartInfo = true;
           // inform the recovery manager about this tracker joining back
           recoveryManager.unMarkTracker(trackerName);
-        } else {
+        } else {  // 2.
           // Jobtracker might have restarted but no recovery is needed
           // otherwise this code should not be reached
           LOG.warn("Serious problem, cannot find record of 'previous' " +
@@ -3189,6 +3192,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       } else {
         // 当prevHeartbeatResponse!=null时, 如果prevHeartbeatResponse.getResponseId() != responseId， 则认为这是一条重复的心跳请求
         // 说明TaskTracker因为失去了与JobTracker之间的RPC连接而没有接收到，会直接返回prevHeartbeatResponse，而忽略本次心跳请求。
+        // 如果prevHeartbeatResponse.getResponseId() = responseId，则继续往下执行。
                 
         // It is completely safe to not process a 'duplicate' heartbeat from a 
         // {@link TaskTracker} since it resends the heartbeat when rpcs are 
