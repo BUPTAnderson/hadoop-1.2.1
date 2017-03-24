@@ -1680,6 +1680,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // 在updateTaskTrackerStatus方法中会初始化taskTrackers：taskTrackers.put(trackerName, taskTracker);
   private HashMap<String, TaskTracker> taskTrackers =
     new HashMap<String, TaskTracker>();
+  // host --> host上TaskTracker的数量
   Map<String,Integer>uniqueHostsMap = new ConcurrentHashMap<String, Integer>();
   ExpireTrackers expireTrackers = new ExpireTrackers();
   Thread expireTrackersThread = null;
@@ -3175,7 +3176,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // initialize方法中recoveryManager.checkAndAddJob(status) 会判断systemDir是否有job需要恢复，如果有shouldRecover = true;然后设置hasRestarted = recoveryManager.shouldRecover();
         // 所以当有job需要恢复时，hasRestarted()=true，addRestartInfo会被设置为true，即需要TT进行job恢复操作，同时从recoveryManager的recoveredTrackers队列中移除该TT。
         // 如果没有job需要恢复，则直接返回HeartbeatResponse，并对TT下重新初始化指令，注意此处返回的responseId还是TT发过来的responseId，即responseId不变。
-        if (hasRestarted()) {// 1. JobTracker重启了，这时候需要TaskTracker进行job恢复
+        if (hasRestarted()) {// 1. JobTracker重启了，hasRestarted()=true,这时候需要TaskTracker进行job恢复
           addRestartInfo = true;
           // inform the recovery manager about this tracker joining back
           recoveryManager.unMarkTracker(trackerName);
@@ -3228,7 +3229,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     List<TaskTrackerAction> actions = new ArrayList<TaskTrackerAction>();
     boolean isBlacklisted = faultyTrackers.isBlacklisted(status.getHost());
     // Check for new tasks to be executed on the tasktracker
-    // 检查是否可以向该TaskTracker指派任务，如果可以可以向该TaskTracker指派任务，则直接使用TaskScheduler指定的调度策略，选择当前可以指派给TaskTracker的一组需要启动的Task（对应指令LaunchTaskAction）。
+    // 检查是否可以向该TaskTracker指派任务，如果可以向该TaskTracker指派任务，则直接使用TaskScheduler指定的调度策略，选择当前可以指派给TaskTracker的一组需要启动的Task（对应指令LaunchTaskAction）。
     // 首先需要判断recoveryManager的recoveredTrackers是否为空，即是否有需要恢复的TT，没有则返回true。
     // 然后根据TT心跳发送的acceptNewTasks值，即表明TT是否可接收新任务，并且该TT不在黑名单中，
     // 同上满足以上条件，则JT可以为TT分配任务。分配任务的选择方式是优先CleanupTask，然后是SetupTask，然后才是Map/Reduce Task
@@ -3375,14 +3376,17 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // is host in oldTaskTrackerStatus not black listed ? 如果TaskTracker没有被加入到黑名单中，还要更新下面两个JobTracker端全局计数器
       if (!faultyTrackers.isBlacklisted(oldStatus.getHost())) {
         int mapSlots = oldStatus.getMaxMapSlots();
-        // 该TaskTracker上最大Map Slot总数
+        // 该JobTracker上最大Map Slot总数, 先将该TaskTracker的mapSlots总数减掉，如果status != null，会把最新的mapSlots再加到totalMapTaskCapacity之中，其实就是更新totalMapTaskCapacity
+        // 下面的totalReduceTaskCapacity操作类似
         totalMapTaskCapacity -= mapSlots;
         int reduceSlots = oldStatus.getMaxReduceSlots();
-        // 该TaskTracker上最大Reduce Slot总数
+        // 该JobTracker上最大Reduce Slot总数
         totalReduceTaskCapacity -= reduceSlots;
       }
       if (status == null) {
+        // status == null,将TaskTracker移除
         taskTrackers.remove(trackerName);
+        // 考虑到一个host上面可能有多个TaskTracker，将该TaskTracker所在的host总的TaskTracker数量减一，然后更新uniqueHostsMap
         Integer numTaskTrackersInHost = 
           uniqueHostsMap.get(oldStatus.getHost());
         if (numTaskTrackersInHost != null) {
