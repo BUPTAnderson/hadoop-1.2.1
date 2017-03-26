@@ -480,7 +480,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   ///////////////////////////////////////////////////////
   // Used to expire TaskTrackers that have gone down
   ///////////////////////////////////////////////////////
-  // 线程expireTracker Thread周期性的扫描队列trackerExpiryQueue，如果发现在某段时间（mapred.tasktracker.expiry.interval设置）内未汇报心跳，则将其从集群中移除。
+  // 线程expireTracker Thread周期性的扫描队列trackerExpiryQueue，如果发现在某段时间（mapred.tasktracker.expiry.interval设置， 默认10分钟）内未汇报心跳，则将其从集群中移除。
   // 如果发现该任务处在运行或者等待状态或者是未完成的Task或者Reduce Task数目不为零的作业中已经完成的Map Task，则将会放入其他节点重新运行。
   class ExpireTrackers implements Runnable {
     public ExpireTrackers() {
@@ -514,7 +514,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               synchronized (trackerExpiryQueue) {
                 long now = clock.getTime();
                 TaskTrackerStatus leastRecent = null;
-                // 如果10分钟内没有收到心跳，则对TasTracker进行处理
+                // 取出队列中最早的一个TaskTrackerStatus，如果10分钟内没有收到心跳，则对TasTracker进行处理
                 while ((trackerExpiryQueue.size() > 0) &&
                        (leastRecent = trackerExpiryQueue.first()) != null &&
                        ((now - leastRecent.getLastSeen()) > TASKTRACKER_EXPIRY_INTERVAL)) {
@@ -542,6 +542,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                       hostnameToTaskTracker.get(hostname).remove(trackerName);
                     } else {
                       // Update time by inserting latest profile
+                      // 更新trackerExpiryQueue队列中的TaskTrackerStatus对象。
                       trackerExpiryQueue.add(newProfile);
                     }
                   }
@@ -5046,7 +5047,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       if(argv.length == 0) {
         // 构造JobTracker对象(包括实例化QueueManager,实例化 myInstrumentation, 构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
         JobTracker tracker = startTracker(new JobConf());
-        // 启动JobTracker内部一些重要的服务或者线程, 包括taskScheduler的启动
+        // 启动JobTracker内部一些重要的服务或者线程, 包括taskScheduler的启动, 各种监控线程(比如对超时时间范围之内没有收到TaskTracker的Heartbeat报告，对过期TaskTracker的处理线程)的启动。
         tracker.offerService();
       }
       else {
