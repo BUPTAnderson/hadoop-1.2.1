@@ -480,6 +480,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   ///////////////////////////////////////////////////////
   // Used to expire TaskTrackers that have gone down
   ///////////////////////////////////////////////////////
+  // TaskTracker与JobTracker失去连接，更新状态
   // 线程expireTracker Thread周期性的扫描队列trackerExpiryQueue，如果发现在某段时间（mapred.tasktracker.expiry.interval设置， 默认10分钟）内未汇报心跳，则将其从集群中移除。
   // 如果发现该任务处在运行或者等待状态或者是未完成的Task或者Reduce Task数目不为零的作业中已经完成的Map Task，则将会放入其他节点重新运行。
   class ExpireTrackers implements Runnable {
@@ -1027,6 +1028,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
      * @param hostName The tracker name
      * @param now      The current time (milliseconds)
      */
+    // 检查是否可以向TaskTracker指派运行Task
+    // 当TaskTracker发送Heartbeat标志其没有重启，那么会执行该子流程
     void checkTrackerFaultTimeout(String hostName, long now) {
       synchronized (potentiallyFaultyTrackers) {
         // 获取TaskTracker的Fault information
@@ -1098,6 +1101,9 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
      * 
      * @param hostName
      */
+    // 标记TaskTracker为Health状态
+    // 当TaskTracker重启了，然后再次连接JobTracker时，发送Heartbeat的过程中，会执行该流程.
+    // 很有可能TaskTracker重启之前，其上运行Task失败了很多次，在JobTracker端记录该失败计数，当满足一定条件后，会将TaskTracker加入灰名单，如果TaskTracker重启了，应该将其从灰名单中移除，以便不影响任务分派
     void markTrackerHealthy(String hostName) {
       synchronized (potentiallyFaultyTrackers) {
         // 从potentiallyFaultyTrackers(潜在有错误的Tracker。当有task运行失败时，就将其加入该队列中)集合中移除host
@@ -4723,6 +4729,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   // 更新TaskTracker上所有Task状态
   void updateTaskStatuses(TaskTrackerStatus status) {
     String trackerName = status.getTrackerName();
+    // 获取该TaskTracker上所有的Task的TaskStatus, 注意这个status是TaskTracker通过heartbeat发送过来的
     for (TaskStatus report : status.getTaskReports()) {
       report.setTaskTracker(trackerName);
       TaskAttemptID taskId = report.getTaskID();
@@ -4866,14 +4873,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // their outputs go to dfs
         // And completed maps with zero reducers of the job 
         // never need to be failed.
-        // 2. 如果ReduceTask已经完成，以及具有0个ReduceTask的所有MapTask已经完成，则将这些Task放入到队列 trackerToMarkedTasksMap中, 即else中markCompletedTaskAttempt(trackerName, taskId)方法；
-        // 如果tip标记Task没有完成，或者满足条件tip.isMapTask() && !tip.isJobSetupTask() && job.desiredReduces() != 0，
-        // 检查Job运行状态，当job.getStatus().getRunState() == JobStatus.RUNNING || job.getStatus().getRunState() == JobStatus.PREP成立时，则该Task运行失败，并更新Task状态，
-        // 同时收集这类Job，放入集合Set<JobInProgress> jobsWithFailures中，后续对这些Job进行处理；
-        if (!tip.isComplete() || 
+        // 2.如果tip标记Task没有完成，或者满足条件tip.isMapTask() && !tip.isJobSetupTask() && job.desiredReduces() != 0，
+        if (!tip.isComplete() ||
             (tip.isMapTask() && !tip.isJobSetupTask() && 
              job.desiredReduces() != 0)) {
           // if the job is done, we don't want to change anything
+          // 检查Job运行状态，当job.getStatus().getRunState() == JobStatus.RUNNING || job.getStatus().getRunState() == JobStatus.PREP成立时，则该Task运行失败，并更新Task状态，
           if (job.getStatus().getRunState() == JobStatus.RUNNING ||
               job.getStatus().getRunState() == JobStatus.PREP) {
             // the state will be KILLED_UNCLEAN, if the task(map or reduce) 
@@ -4881,15 +4886,17 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             TaskStatus.State killState = (tip.isRunningTask(taskId) && 
               !tip.isJobSetupTask() && !tip.isJobCleanupTask()) ? 
               TaskStatus.State.KILLED_UNCLEAN : TaskStatus.State.KILLED;
+            // 更新Task状态
             job.failedTask(tip, taskId, ("Lost task tracker: " + trackerName), 
                            (tip.isMapTask() ? 
                                TaskStatus.Phase.MAP : 
                                TaskStatus.Phase.REDUCE), 
                             killState,
                             trackerName);
+            // 同时收集这类Job，放入集合Set<JobInProgress> jobsWithFailures中，后续对这些Job进行处理；
             jobsWithFailures.add(job);
           }
-        } else {
+        } else { // 如果ReduceTask已经完成，以及具有0个ReduceTask的所有MapTask已经完成，则将这些Task放入到队列 trackerToMarkedTasksMap中, 即else中markCompletedTaskAttempt(trackerName, taskId)方法；
           // Completed 'reduce' task and completed 'maps' with zero 
           // reducers of the job, not failed;
           // only removed from data-structures.
@@ -4901,12 +4908,13 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // had any tasks running on it when it was 'lost' 
       // Also, remove any reserved slots on this tasktracker
       // 由于该TaskTracker被JobTracker标记为lost状态，则对上面收集到的jobsWithFailures集合中的Job，只要存在属于该Job的Task被分配到该TaskTracker上运行，
-      // 会通过累加计算在该TaskTracker上失败的Task计数，给该TaskTracker以惩罚，并释放所有在该TaskTracker上预留的Slot
+      // 会通过累加计算在该TaskTracker上失败的Task计数，给该TaskTracker以惩罚
       for (JobInProgress job : jobsWithFailures) {
         job.addTrackerTaskFailure(trackerName, taskTracker);
       }
 
       // Cleanup
+      // 并释放所有在该TaskTracker上预留的Slot
       taskTracker.cancelAllReservations();
 
       // Purge 'marked' tasks, needs to be done  
