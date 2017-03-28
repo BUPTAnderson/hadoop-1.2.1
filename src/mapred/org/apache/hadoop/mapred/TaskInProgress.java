@@ -657,8 +657,10 @@ class TaskInProgress {
     }
 
     if (!isCleanupAttempt(taskid)) {
+      // 加入taskStatuses
       taskStatuses.put(taskid, status);
     } else {
+      // 更新taskStatuses该taskid对应的TaskStatus
       taskStatuses.get(taskid).statusUpdate(status.getRunState(),
         status.getProgress(), status.getStateString(), status.getPhase(),
         status.getFinishTime());
@@ -1071,6 +1073,7 @@ class TaskInProgress {
     tasks.add(taskid);
 
     // Ask JobTracker to note that the task exists
+    // 将其加入到Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中
     jobtracker.createTaskEntry(taskid, taskTracker, this);
 
     // check and set the first attempt

@@ -314,6 +314,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   public static JobTracker startTracker(JobConf conf
                                         ) throws IOException,
                                                  InterruptedException {
+    // generateNewIdentifier: 根据当前时间生成格式为yyyyMMddHHmm的字符串
     return startTracker(conf, generateNewIdentifier());
   }
 
@@ -655,12 +656,15 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     public void run() {
       while (true) {
         try {
+          // 默认检查间隔是1分钟
           Thread.sleep(RETIRE_JOB_CHECK_INTERVAL);
           List<JobInProgress> retiredJobs = new ArrayList<JobInProgress>();
           long now = clock.getTime();
+          // RETIRE_JOB_INTERVAL默认值为24小时
           long retireBefore = now - RETIRE_JOB_INTERVAL;
 
           synchronized (jobs) {
+            // 对于状态是SUCCEEDED，FAILED或者KILLED, 并且作业完成时间距离现在已经超过24小时，将作业加入过期队列
             for(JobInProgress job: jobs.values()) {
               if (minConditionToRetire(job, now) &&
                   (job.getFinishTime()  < retireBefore)) {
@@ -689,6 +693,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
               }
               
               // Now, check for #jobs per user
+              // 对于每个用户，userToJobsMap中如果用户的作业数量大于100,会将最早的已完成的作业信息移入过期队列。
               it = userJobs.iterator();
               while (it.hasNext() && 
                   userJobs.size() > MAX_COMPLETE_USER_JOBS_IN_MEMORY) {
@@ -700,6 +705,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                   it.remove();
                 }
               }
+              // 如果用户的作业信息已经为空了，将用户从userToJobsMap中移除
               if (userJobs.isEmpty()) {
                 userToJobsMapIt.remove();
               }
@@ -1556,6 +1562,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   ////////////////////////////////////////////////////////////////
   int port;
   String localMachine;
+  // 格式为yyyyMMddHHmm的时间字符串
   private String trackerIdentifier;
   long startTime;
   int totalSubmissions = 0;
@@ -2019,14 +2026,14 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     // 作业终止间隔
     TASKTRACKER_EXPIRY_INTERVAL = 
       conf.getLong("mapred.tasktracker.expiry.interval", 10 * 60 * 1000);
-    // 作业完成清除间隔
+    // 已经完成的作业信息在内存中的最长保留时常，默认24小时，超过该时间会被移入过期队列
     RETIRE_JOB_INTERVAL = conf.getLong("mapred.jobtracker.retirejob.interval", 24 * 60 * 60 * 1000);
-    // 作业完成清除任务检查间隔
+    // 对已经完成的作业信息进行清除的线程检查间隔，默认1分钟
     RETIRE_JOB_CHECK_INTERVAL = conf.getLong("mapred.jobtracker.retirejob.check", 60 * 1000);
-    // 保留的已完成作业数量
+    // 过期队列中保留的已完成作业信息数量，默认是1000,超过该值，将会从内存中彻底删除
     retiredJobsCacheSize =
              conf.getInt("mapred.job.tracker.retiredjobs.cache.size", 1000);
-    // 是否将完成的任务保留在hdfs中
+    // userToJobsMap中每个用户可以保存的作业信息数量，默认值为100, 超过该值后最早的已完成的作业信息会被移入过期队列，该条件和上面的RETIRE_JOB_INTERVAL只要有一个满足就会被移入过期队列
     MAX_COMPLETE_USER_JOBS_IN_MEMORY = conf.getInt("mapred.jobtracker.completeuserjobs.maximum", 100);
 
     // values related to heuristic graylisting (a "fault" is a per-job
@@ -3253,6 +3260,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
         if (tasks != null) {
           for (Task task : tasks) {
+            // 分配的Task加入expireLaunchingTasks，expireLaunchingTaskThread会定期检查expireLaunchingTasks的Task在规定的时间内是否汇报了进度。
             expireLaunchingTasks.addNewTask(task.getTaskID());
             if(LOG.isDebugEnabled()) {
               LOG.debug(trackerName + " -> LaunchTask: " + task.getTaskID());
@@ -4739,11 +4747,13 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       // （当一个Task指派给一个TaskTracker运行时，会首先在JobTracker端加入到一个超时列表中，由一个独立的线程JobTracker.ExpireLaunchingTasks去检测，该Task是否在给定的时间内（默认是10分钟 ）
       // 是否在TaskTracker上启动而且一直没有报告状态，如果没有报告，则会将该Task标记为失败）
       if (report.getRunState() != TaskStatus.State.UNASSIGNED) {
+        // 从expireLaunchingTasks中移除该Task，即不让该Task失败,等待下一次被调度分配给TaskTracker去运行
         expireLaunchingTasks.removeTask(taskId);
       }
 
-      // 根据Task的ID，获取到它对应的JobInProgress信息，如果没有获取到则将该Task对应的JobInProgress对象加入到cleanup列表Map<String, Set<JobID>> trackerToJobsToCleanup中，直接返回继续处理下一个TaskStatus报告；
+      // 根据Task的ID，获取到它对应的JobInProgress信息，
       JobInProgress job = getJob(taskId.getJobID());
+      // 如果没有获取到则将该Task对应的JobInProgress对象加入到cleanup列表Map<String, Set<JobID>> trackerToJobsToCleanup中，直接返回继续处理下一个TaskStatus报告；
       if (job == null) {
         // if job is not there in the cleanup list ... add it
         synchronized (trackerToJobsToCleanup) {
@@ -4776,11 +4786,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       TaskInProgress tip = taskidToTIPMap.get(taskId);
       // Check if the tip is known to the jobtracker. In case of a restarted
       // jt, some tasks might join in later
-      // 很有可能JobTracker重启，内存中维护的Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中没有TaskInProgress对象，这时JobInProgress对象一定存在，
-      // 可以通过JobInProgress对象获取到该Task对应的TaskInProgress对象（因为在JobTracker端创建Job的时候，会分别创建4类TIP：map、reduce、cleanup、setup）
       if (tip != null || hasRestarted()) {
         if (tip == null) {
+          // 很有可能JobTracker重启，内存中维护的Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中没有TaskInProgress对象，这时JobInProgress对象一定存在，
+          // 可以通过JobInProgress对象获取到该Task对应的TaskInProgress对象（因为在JobTracker端创建Job的时候，会分别创建4类TIP：map、reduce、cleanup、setup）
           tip = job.getTaskInProgress(taskId.getTaskID());
+          // 将其加入到Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中
           job.addRunningTaskToTIP(tip, taskId, status, false);
         }
         
@@ -4821,6 +4832,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             if (failedFetchTrackerName == null) {
               failedFetchTrackerName = "Lost task tracker";
             }
+            // 更新TaskInProgress状态
             failedFetchMap.getJob().fetchFailureNotification(failedFetchMap,
                                                              mapTaskId,
                                                              failedFetchTrackerName,
@@ -5055,7 +5067,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       if(argv.length == 0) {
         // 构造JobTracker对象(包括实例化QueueManager,实例化 myInstrumentation, 构造TaskScheduler实例及将当前JobTracker设置为TaskScheduler的TaskTrackerManager)
         JobTracker tracker = startTracker(new JobConf());
-        // 启动JobTracker内部一些重要的服务或者线程, 包括taskScheduler的启动, 各种监控线程(比如对超时时间范围之内没有收到TaskTracker的Heartbeat报告，对过期TaskTracker的处理线程)的启动。
+        // 启动JobTracker内部一些重要的服务或者线程, 包括taskScheduler的启动, 各种监控线程(比如对超时时间范围之内没有收到TaskTracker的Heartbeat报告，对过期TaskTracker的处理线程expireTrackerThread,
+        // retireJobsThread线程， expireLaunchingTaskThread线程， completedJobsStoreThread线程)的启动。
         tracker.offerService();
       }
       else {

@@ -420,6 +420,7 @@ public class JobInProgress {
       String url = "http://" + jobtracker.getJobTrackerMachine() + ":" 
       + jobtracker.getInfoPort() + "/jobdetails.jsp?jobid=" + jobId;
       this.jobtracker = jobtracker;
+      // 新建JobInProgress， 设置status为：JobStatus.PREP
       this.status = new JobStatus(jobId, 0.0f, 0.0f, JobStatus.PREP);
       this.status.setUsername(jobInfo.getUser().toString());
       this.jobtracker.getInstrumentation().addPrepJob(conf, jobId);
@@ -752,6 +753,7 @@ public class JobInProgress {
       if(jobInitKillStatus.killed || jobInitKillStatus.initStarted) {
         return;
       }
+      // 设置job的初始化开始标志为true
       jobInitKillStatus.initStarted = true;
     }
 
@@ -883,6 +885,7 @@ public class JobInProgress {
     setup[1].setJobSetupTask();
     
     synchronized(jobInitKillStatus){
+      // 设置job的初始化完成标志为true
       jobInitKillStatus.initDone = true;
 
       // set this before the throw to make sure cleanup works properly
@@ -1156,7 +1159,7 @@ public class JobInProgress {
   // 更新Task状态，主要是更新每个Task对应的在JobTracker端维护的TaskInProgress结构
   public synchronized void updateTaskStatus(TaskInProgress tip, 
                                             TaskStatus status) {
-
+    // 其中，tip是当前在JobTracker端维护的Task的状态，status是TaskTracker汇报的Task状态，更新JobTracker端Task状态主要是根据心跳汇报的status来更新tip数据结构
     double oldProgress = tip.getProgress();   // save old progress
     boolean wasRunning = tip.isRunning();
     boolean wasComplete = tip.isComplete();
@@ -1195,8 +1198,7 @@ public class JobInProgress {
     // 调用tip的updateStatus方法，传入当前TaskTracker汇报的status状态对象，更新tip的状态。具体看该方法的实现
     boolean change = tip.updateStatus(status);
     // 如果oldStatus与status不相等，即TaskAttemptID的状态已经发生变化，则会根据status的运行状态创建不同的TaskCompletionEvent事件（SUCCEEDED/FAILED/KILLED），
-    // 这些 TaskCompletionEvent事件会被加入到JobInProgress的taskCompletionEvents列表中，供JobClient查询或供JobTracker检索；或者执行相应的操作：如果运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN，
-    // 则tip中该TaskAttemptID标记为失败并更新相关结构，然后加入到mapCleanupTasks/reduceCleanupTasks列表中等待被清理，同时将该TaskAttemptID对应的数据从JobTracker的taskidToTIPMap、taskidToTrackerMap、trackerToTaskMap这3个队列中删除。
+    // 这些 TaskCompletionEvent事件会被加入到JobInProgress的taskCompletionEvents列表中，供JobClient查询或供JobTracker检索；或者执行相应的操作：
     if (change) {
       TaskStatus.State state = status.getRunState();
       // get the TaskTrackerStatus where the task ran 
@@ -1241,6 +1243,8 @@ public class JobInProgress {
         return;
       } else if (state == TaskStatus.State.FAILED_UNCLEAN ||
                  state == TaskStatus.State.KILLED_UNCLEAN) {
+        // 如果运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN，则tip中该TaskAttemptID标记为失败并更新相关结构，然后加入到mapCleanupTasks/reduceCleanupTasks列表中等待被清理，
+        // 同时将该TaskAttemptID对应的数据从JobTracker的taskidToTIPMap、taskidToTrackerMap、trackerToTaskMap这3个队列中删除。
         tip.incompleteSubTask(taskid, this.status);
         // add this task, to be rescheduled as cleanup attempt
         if (tip.isMapTask()) {
@@ -1815,6 +1819,7 @@ public class JobInProgress {
     // Make an entry in the tip if the attempt is not scheduled i.e externally
     // added
     if (!isScheduled) {
+      // 将id加入tip
       tip.addRunningTask(id, tts.getTrackerName());
     }
     final JobTrackerInstrumentation metrics = jobtracker.getInstrumentation();
@@ -3509,6 +3514,7 @@ public class JobInProgress {
                                              String mapTrackerName,
                                              TaskAttemptID reduceTaskId,
                                              String reduceTrackerName) {
+    // 更新mapTaskIdToFetchFailuresMap中的map fetch failuer counter
     Integer fetchFailures = mapTaskIdToFetchFailuresMap.get(mapTaskId);
     fetchFailures = (fetchFailures == null) ? 1 : (fetchFailures+1);
     mapTaskIdToFetchFailuresMap.put(mapTaskId, fetchFailures);
@@ -3520,16 +3526,19 @@ public class JobInProgress {
     float failureRate = (float)fetchFailures / runningReduceTasks;
     // declare faulty if fetch-failures >= max-allowed-failures
     boolean isMapFaulty = failureRate >= MAX_ALLOWED_FETCH_FAILURES_PERCENT;
+    // 如果（失败次数/reduce task个数）比例大于0.5, 并且失败次数大于3次
     if (fetchFailures >= MAX_FETCH_FAILURES_NOTIFICATIONS
         && isMapFaulty) {
       LOG.info("Too many fetch-failures for output of task: " + mapTaskId 
                + " ... killing it");
-      
+
+      // 将task置为失败并且更新Task状态
       failedTask(tip, mapTaskId, "Too many fetch-failures",                            
                  (tip.isMapTask() ? TaskStatus.Phase.MAP : 
                                     TaskStatus.Phase.REDUCE), 
                  TaskStatus.State.FAILED, mapTrackerName);
-      
+
+      // 移除mapTaskId
       mapTaskIdToFetchFailuresMap.remove(mapTaskId);
     }
   }
