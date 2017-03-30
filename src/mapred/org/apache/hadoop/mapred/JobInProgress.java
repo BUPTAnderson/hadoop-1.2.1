@@ -1488,6 +1488,7 @@ public class JobInProgress {
       if (isMapSlot) {
         if (!mapCleanupTasks.isEmpty()) {
           taskid = mapCleanupTasks.remove(0);
+          // 一个map在maps中的顺序就是taskid.getTaskID().getId()，也就是构造task时的partition的值，reduce同理。
           tip = maps[taskid.getTaskID().getId()];
         }
       } else {
@@ -1584,6 +1585,7 @@ public class JobInProgress {
       }
       
       List<TaskInProgress> cleanupTaskList = new ArrayList<TaskInProgress>();
+      // 第一次调用的时候传入的isMapSlot=true， 如果cleanup[0]没有运行，则tip=cleanup[0]
       if (isMapSlot) {
         cleanupTaskList.add(cleanup[0]);
       } else {
@@ -1596,6 +1598,7 @@ public class JobInProgress {
       }
       
       // Now launch the cleanupTask
+      // 获取需要运行的cleanupTask
       Task result = tip.getTaskToRun(tts.getTrackerName());
 
       if (result != null) {

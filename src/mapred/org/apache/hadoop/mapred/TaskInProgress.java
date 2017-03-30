@@ -992,16 +992,19 @@ class TaskInProgress {
    * Return a Task that can be sent to a TaskTracker for execution.
    */
   public Task getTaskToRun(String taskTracker) throws IOException {
+    // 将执行时间设置为当前时间
     if (0 == execStartTime){
       // assume task starts running now
       execStartTime = jobtracker.getClock().getTime();
     }
 
+    // 下面是构造TaskAttemptID
     // Create the 'taskid'; do not count the 'killed' tasks against the job!
     TaskAttemptID taskid = null;
     if (nextTaskId < (MAX_TASK_EXECS + maxTaskAttempts + numKilledTasks)) {
       // Make sure that the attempts are unqiue across restarts
       int attemptId = job.getNumRestarts() * NUM_ATTEMPTS_PER_RESTART + nextTaskId;
+      // id是TaskID，在JobInProgress initTasks（即构造setuptask，cleanuptask，maptask，reducetask）时，会初始化该id值
       taskid = new TaskAttemptID( id, attemptId);
       ++nextTaskId;
     } else {
@@ -1010,11 +1013,12 @@ class TaskInProgress {
               " attempts for the tip '" + getTIPId() + "'");
       return null;
     }
-
+    // 调用addRunningTask返回Task
     return addRunningTask(taskid, taskTracker);
   }
   
   public Task addRunningTask(TaskAttemptID taskid, String taskTracker) {
+    // 调用addRunningTask返回Task
     return addRunningTask(taskid, taskTracker, false);
   }
 
@@ -1069,11 +1073,12 @@ class TaskInProgress {
       t.setWriteSkipRecs(false);
     }
 
+    // 将Task加入activeTasks和tasks集合
     activeTasks.put(taskid, taskTracker);
     tasks.add(taskid);
 
     // Ask JobTracker to note that the task exists
-    // 将其加入到Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中
+    // 将Task加入到Map<TaskAttemptID, TaskInProgress> taskidToTIPMap队列中
     jobtracker.createTaskEntry(taskid, taskTracker, this);
 
     // check and set the first attempt

@@ -439,6 +439,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                     // again. expire tasktracker should have called failed
                     // task!
                     if (trackerStatus != null)
+                      // 将Task状态标注为FAILED，并更新Task状态
                       job.failedTask(tip, taskId, "Error launching task", 
                                      tip.isMapTask()? TaskStatus.Phase.MAP:
                                      TaskStatus.Phase.STARTING,
@@ -2302,7 +2303,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     setSafeModeInternal(SafeModeAction.SAFEMODE_LEAVE);
     
     // Initialize JobTracker
-    // 初始化JobTracker，里面包括很多东西，进入该方法查看具体过程
+    // 初始化JobTracker，里面包括很多东西（如构造RecoveryManager，CompletedJobStatusStore线程），进入该方法查看具体过程
     initialize();
     
     // Prepare for recovery. This is done irrespective of the status of restart
@@ -3252,10 +3253,11 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       if (taskTrackerStatus == null) {
         LOG.warn("Unknown task tracker polling; ignoring: " + trackerName);
       } else {
+        // 优先选择辅助型任务，选择优先级从高到低依次为：job-cleanup task, task-cleanup task和job-setup task, 这样可以让运行完成的作业快速结束，新提交的作业立刻进入运行状态
         // 看一下getSetupAndCleanupTasks方法的具体实现
         List<Task> tasks = getSetupAndCleanupTasks(taskTrackerStatus);
         if (tasks == null ) {
-          // 此处是使用TaskScheduler调度任务，一大难点，后期分析。
+          // 由任务调度器选择一个或多个计算型任务，此处是使用TaskScheduler调度任务，一大难点，后期分析。
           tasks = taskScheduler.assignTasks(taskTrackers.get(trackerName));
         }
         if (tasks != null) {
@@ -3727,6 +3729,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
+          // 进入方法obtainJobCleanupTask
           t = job.obtainJobCleanupTask(taskTracker, numTaskTrackers,
                                     numUniqueHosts, true);
           if (t != null) {
