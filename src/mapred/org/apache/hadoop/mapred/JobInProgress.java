@@ -94,61 +94,65 @@ public class JobInProgress {
   Path localJobFile = null;
   final QueueMetrics queueMetrics;
 
+  // 下面是map task, reduce task, cleanup task, setup task对应的TaskInProgress
   TaskInProgress maps[] = new TaskInProgress[0];
   TaskInProgress reduces[] = new TaskInProgress[0];
   TaskInProgress cleanup[] = new TaskInProgress[0];
   TaskInProgress setup[] = new TaskInProgress[0];
-  int numMapTasks = 0;
-  int numReduceTasks = 0;
-  final long memoryPerMap;
-  final long memoryPerReduce;
-  volatile int numSlotsPerMap = 1;
-  volatile int numSlotsPerReduce = 1;
-  final int maxTaskFailuresPerTracker;
+  int numMapTasks = 0;  // map task个数，初始化时会从conf参数中获取
+  int numReduceTasks = 0; //reduce task个数，初始化时会从conf参数中获取
+  final long memoryPerMap;  // 每个map task需要的内存量， 初始化时从conf参数中获取，默认没有限制
+  final long memoryPerReduce; // reduce task需要的内存量， 初始化时从conf参数中获取，默认没有限制
+  volatile int numSlotsPerMap = 1; // 每个map task需要的内存量
+  volatile int numSlotsPerReduce = 1; // 每个reduce task需要的内存量
+  final int maxTaskFailuresPerTracker; // 允许每个TaskTracker上失败的Task个数，初始化时从conf参数中获取, 默认是4
   
   // Counters to track currently running/finished/failed Map/Reduce task-attempts
-  // Counters包含了一组计数器，用来跟踪一个Job运行的信息
-  int runningMapTasks = 0;
-  int runningReduceTasks = 0;
-  int finishedMapTasks = 0;
-  int finishedReduceTasks = 0;
-  int failedMapTasks = 0; 
-  int failedReduceTasks = 0;
+  // Counters包含了一组计数器，用来跟踪一个Job运行的动态信息
+  int runningMapTasks = 0; // 正在运行的map task数目
+  int runningReduceTasks = 0;  // 正在运行的reduce task数目
+  int finishedMapTasks = 0; //运行完成的map task数目
+  int finishedReduceTasks = 0;  //运行完成的reduce task数目
+  int failedMapTasks = 0; //失败的map task attempt数目
+  int failedReduceTasks = 0;  //失败的reduce task attempt数目
   private static long DEFAULT_REDUCE_INPUT_LIMIT = -1L;
   long reduce_input_limit = -1L;
+  // 当有5%的map task完成后， 才可以调度reduce task
   private static float DEFAULT_COMPLETED_MAPS_PERCENT_FOR_REDUCE_SLOWSTART = 0.05f;
+  // 多少map task完成后开始调度reduce task
   int completedMapsForReduceSlowstart = 0;
     
   // runningMapTasks include speculative tasks, so we need to capture 
   // speculative tasks separately 
-  int speculativeMapTasks = 0;
-  int speculativeReduceTasks = 0;
+  int speculativeMapTasks = 0;  // 正在运行的备份任务(MAP)数目
+  int speculativeReduceTasks = 0;  // 正在运行的备份任务(REDUCE)数目
   
-  final int mapFailuresPercent;
-  final int reduceFailuresPercent;
-  int failedMapTIPs = 0;
-  int failedReduceTIPs = 0;
-  private volatile boolean launchedCleanup = false;
-  private volatile boolean launchedSetup = false;
-  private volatile boolean jobKilled = false;
-  private volatile boolean jobFailed = false;
+  final int mapFailuresPercent; // 允许map task失败的比例上线， 通过参数mapred.max.map.failures.percent设置
+  final int reduceFailuresPercent; // 允许的reduce task失败的比例上线，通过参数mapred.max.reduce.failures.percent设置
+  int failedMapTIPs = 0;  // 失败的TaskInProgress(MAP)数目，这意味着对应的输入数据将被丢弃，不会产生最终结果
+  int failedReduceTIPs = 0;  // 失败的TaskInProgress(REDUCE)数目
+  private volatile boolean launchedCleanup = false;  // 是否已启动cleanup task
+  private volatile boolean launchedSetup = false;  // 是否已启动setup task
+  private volatile boolean jobKilled = false;  // 作业是否已被杀死
+  private volatile boolean jobFailed = false;  // 作业是否已失败
 
-  JobPriority priority = JobPriority.NORMAL;
+  JobPriority priority = JobPriority.NORMAL; // 作业优先级
   final JobTracker jobtracker;
   
   protected Credentials tokenStorage;
 
   // NetworkTopology Node to the set of TIPs
-  // node上没有运行的MapTask列表信息
-  // 在调度MapTask之前，需要计算某个MapTask将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的MapTask的列表信息。
+  // node上没有运行的Task列表信息
+  // 在调度Task之前，需要计算某个Task将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的Task的列表信息。
   Map<Node, List<TaskInProgress>> nonRunningMapCache;
   
   // Map of NetworkTopology Node to set of running TIPs
-  // 维护了某个Node上，当前正在运行的MapTask列表的信息。
+  // 维护了某个Node上，当前正在运行的Task列表的信息。
   Map<Node, Set<TaskInProgress>> runningMapCache;
 
   // A list of non-local, non-running maps
   // JobTracker端维护的、非Local，并且还没有运行的MapTask的列表。
+  // 不需要考虑数据本地性的Map task，如果一个map task的InputSplit Location为空，则进行任务调度时不需要考虑本地性
   final List<TaskInProgress> nonLocalMaps;
 
   // Set of failed, non-running maps sorted by #failures
@@ -169,11 +173,11 @@ public class JobInProgress {
   Set<TaskInProgress> runningReduces;
   
   // A list of cleanup tasks for the map task attempts, to be launched
-  // 为MapTask运行的cleanup task列表。
+  // 待清理的map task列表。运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN的map task会放入该集合中，比如用户通过命令'bin/hadoop job -kill'杀死的task
   List<TaskAttemptID> mapCleanupTasks = new LinkedList<TaskAttemptID>();
   
   // A list of cleanup tasks for the reduce task attempts, to be launched
-  // 为ReduceTask运行的cleanup task列表。
+  // 待清理的reduce task列表。运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN的reduce task会放入该集合中
   List<TaskAttemptID> reduceCleanupTasks = new LinkedList<TaskAttemptID>();
 
   // keep failedMaps, nonRunningReduces ordered by failure count to bias
@@ -245,9 +249,9 @@ public class JobInProgress {
   //Confine estimation algorithms to an "oracle" class that JIP queries.
   private ResourceEstimator resourceEstimator; 
   
-  long startTime;
-  long launchTime;
-  long finishTime;
+  long startTime;  // 作业提交时间
+  long launchTime;  // 作业开始执行时间
+  long finishTime;  // 作业完成时间
 
   // First *task launch time
   // 该firstTaskLaunchTimes数据结构保存了某个TaskType类型第一次运行的时间戳信息
@@ -1487,6 +1491,7 @@ public class JobInProgress {
       TaskInProgress tip = null;
       if (isMapSlot) {
         if (!mapCleanupTasks.isEmpty()) {
+          // 从mapCleanupTasks中取一个需要进行清理操作的Task（mapCleanupTasks中存放的是运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN的Task）
           taskid = mapCleanupTasks.remove(0);
           // 一个map在maps中的顺序就是taskid.getTaskID().getId()，也就是构造task时的partition的值，reduce同理。
           tip = maps[taskid.getTaskID().getId()];

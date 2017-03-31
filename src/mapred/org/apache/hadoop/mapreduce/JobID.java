@@ -18,12 +18,12 @@
 
 package org.apache.hadoop.mapreduce;
 
+import org.apache.hadoop.io.Text;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.NumberFormat;
-
-import org.apache.hadoop.io.Text;
 
 /**
  * JobID represents the immutable and unique identifier for 
@@ -52,7 +52,7 @@ public class JobID extends org.apache.hadoop.mapred.ID
   public static final String JOBID_REGEX = 
     JOB + SEPARATOR + "[0-9]+" + SEPARATOR + "[0-9]+";
 
-  // JobTracker启动时间字符串
+  // JobTracker启动时间字符串, 格式为：yyyyMMddHHmm
   private final Text jtIdentifier;
   
   protected static final NumberFormat idFormat = NumberFormat.getInstance();

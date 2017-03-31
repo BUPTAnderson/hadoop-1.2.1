@@ -3254,7 +3254,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         LOG.warn("Unknown task tracker polling; ignoring: " + trackerName);
       } else {
         // 优先选择辅助型任务，选择优先级从高到低依次为：job-cleanup task, task-cleanup task和job-setup task, 这样可以让运行完成的作业快速结束，新提交的作业立刻进入运行状态
-        // 看一下getSetupAndCleanupTasks方法的具体实现
+        // 该方法只会返回一个Task或0个Task（tasks的size为1或0），如果返回null，则表示没有cleanup或者setup任务需要执行，则有执行调度器分配的map/reduce任务。
+        // 具体看一下getSetupAndCleanupTasks方法的具体实现
         List<Task> tasks = getSetupAndCleanupTasks(taskTrackerStatus);
         if (tasks == null ) {
           // 由任务调度器选择一个或多个计算型任务，此处是使用TaskScheduler调度任务，一大难点，后期分析。
@@ -3328,6 +3329,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
   public int getNextHeartbeatInterval() {
     // get the no of task trackers
     int clusterSize = getClusterStatus().getTaskTrackers();
+    // JobTracker会根据集群规模动态调整TaskTracker汇报心跳的时间间隔。
+    // HEARTBEATS_SCALING_FACTOR默认值是1, NUM_HEARTBEATS_IN_SECOND默认值是100, HEARTBEAT_INTERVAL_MIN默认值是300(毫秒)， 即最小间隔是300毫秒
     int heartbeatInterval =  Math.max(
                                 (int)(1000 * HEARTBEATS_SCALING_FACTOR *
                                       ((double)clusterSize / 
@@ -3725,7 +3728,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     Task t = null;
     synchronized (jobs) {
       if (numMaps < maxMapTasks) {
-        // 首先获取Job的 map Cleanup任务，每个Job有两个Cleanup任务，分别是map和reduce的。
+        // 首先获取Job的 map类型的cleanup task，每个Job有两个Cleanup任务(cleanup = new TaskInProgress[2])，cleanup[0]是map task, cleanup[1]是reduce task。
+        // 这里实际是取cleanup[0]
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3736,7 +3740,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
-        // 然后获取一个map的Cleanup任务的TaskAttempt。
+        // 然后从job(JobInProgress)的mapCleanupTasks中取第一个需要进行进行清理操作的map task（取出后该task会从mapCleanupTasks中移除）。
+        // mapCleanupTasks中存放的是运行状态为FAILED_UNCLEAN/KILLED_UNCLEAN的task
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3745,7 +3750,8 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
             return Collections.singletonList(t);
           }
         }
-        // 然后在获取Job的 map的setup任务
+        // 然后在获取Job的 map类型的setup task，每个Job有两个setup task(setup = new TaskInProgress[2])，setup[0]是map task, setup[1]是reduce task。
+        // 这里实际是取setup[0]
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
           JobInProgress job = it.next();
@@ -3757,7 +3763,6 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         }
       }
       // 上面这三个全部是获取的map任务，而下面是获取reduce任务，方法基本一样。
-      // 如果getSetupAndCleanupTasks 方法返回null，则表示没有cleanup或者setup任务需要执行，则执行map/reduce任务。
       if (numReduces < maxReduceTasks) {
         for (Iterator<JobInProgress> it = jobs.values().iterator();
              it.hasNext();) {
