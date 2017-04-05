@@ -18,16 +18,16 @@
 
 package org.apache.hadoop.mapred;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.io.Writable;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.SortedSet;
 import java.util.TreeSet;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.io.Writable;
 
 /**
  * Keeps the Ranges sorted by startIndex.
@@ -85,6 +85,7 @@ class SortedRanges implements Writable{
     long startIndex = range.getStartIndex();
     long endIndex = range.getEndIndex();
     //make sure that there are no overlapping ranges
+    // headSet(E toElement): 该方法调用返回此set，其元素严格小于toElement的部分视图。
     SortedSet<Range> headSet = ranges.headSet(range);
     if(headSet.size()>0) {
       Range previousRange = headSet.last();
@@ -101,7 +102,7 @@ class SortedRanges implements Writable{
                           endIndex : previousRange.getEndIndex();
       }
     }
-    
+    // tailSet(E fromElement): 该方法调用返回这个集合，其元素大于或等于fromElement的部分视图。
     Iterator<Range> tailSetIt = ranges.tailSet(range).iterator();
     while(tailSetIt.hasNext()) {
       Range nextRange = tailSetIt.next();

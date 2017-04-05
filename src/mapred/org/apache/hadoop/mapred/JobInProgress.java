@@ -1421,6 +1421,10 @@ public class JobInProgress {
   /**
    * Return a MapTask, if appropriate, to run on the given tasktracker
    */
+  // 调度器会调用该方法从作业中获得一个Map Task, 其主要思想是：
+  // 优先选择运行失败的任务，以让其快速获取重新运行的机会
+  // 其次是按照数据本地性策略选择尚未运行的任务
+  // 最后是查找正在运行的任务，尝试为“拖后腿”任务启动备份任务
   public synchronized Task obtainNewMapTask(TaskTrackerStatus tts, 
                                             int clusterSize, 
                                             int numUniqueHosts
@@ -1727,6 +1731,8 @@ public class JobInProgress {
    * We don't have cache-sensitivity for reduce tasks, as they
    *  work on temporary MapRed files.  
    */
+  // 调度器会调用该方法从作业中获得一个Reduce Task， 由于Reduce Task不存在数据本地性，它的调度策略很简单
+  // 先从nonRunningReduces列表中选择任务，然后从runningReduces列表中选择任务，为“拖后退”的任务启动备份任务
   public synchronized Task obtainNewReduceTask(TaskTrackerStatus tts,
                                                int clusterSize,
                                                int numUniqueHosts

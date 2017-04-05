@@ -63,44 +63,44 @@ class TaskInProgress {
 
   // Defines the TIP
   private String jobFile = null;
-  private final TaskSplitMetaInfo splitInfo;
-  private int numMaps;
-  private int partition;
-  private JobTracker jobtracker;
-  private TaskID id;
-  private JobInProgress job;
-  private final int numSlotsRequired;
+  private final TaskSplitMetaInfo splitInfo;  // Task要处理的Split信息
+  private int numMaps;  // Map task数目， 只对Reduce Task有用
+  private int partition;  // 该Task在task列表中的索引
+  private JobTracker jobtracker;  // JobTracker对象，用于获取全局时钟
+  private TaskID id;  // task ID，初始化TaskInProgress对象的时候会构造该对象，其后面加下标构成Task Attempt ID
+  private JobInProgress job;  // 该TaskInProgress所在的JobInProgress
+  private final int numSlotsRequired; // 运行该Task需要的slot数目
 
   // Status of the TIP
   private int successEventNumber = -1;
-  private int numTaskFailures = 0;
-  private int numKilledTasks = 0;
-  private double progress = 0;
-  private String state = "";
-  private long startTime = 0;
-  private long execStartTime = 0;
-  private long execFinishTime = 0;
-  private int completes = 0;
-  private boolean failed = false;
-  private boolean killed = false;
-  private long maxSkipRecords = 0;
+  private int numTaskFailures = 0;  // Task Attempt失败次数
+  private int numKilledTasks = 0; // Task Attempt被杀死次数
+  private double progress = 0;  // 任务运行进度
+  private String state = "";  // 运行状态
+  private long startTime = 0; // TaskInProgress对象创建时间, 构造方法中会调用init方法，init方法中会设置该值。
+  private long execStartTime = 0; // 第一个Task Attempt开始运行时间
+  private long execFinishTime = 0;  // 最后一个运行成功的Task Attempt完成时间
+  private int completes = 0;  // Task Attempt运行完成数目，实际只有两个值：0和1
+  private boolean failed = false; // 该TaskInProgress是否运行失败
+  private boolean killed = false; // 该TaskInProgress是否被杀死
+  private long maxSkipRecords = 0;  // 最多允许跳过的记录数
   private FailedRanges failedRanges = new FailedRanges();
-  private volatile boolean skipping = false;
-  private boolean jobCleanup = false; 
-  private boolean jobSetup = false;
+  private volatile boolean skipping = false;  // 是否是skip mode，这是Record 容错机制，开启的化如果task 失败可以跳过错误的record再次执行。
+  private boolean jobCleanup = false; // 该TaskInProgress是否为cleanup task
+  private boolean jobSetup = false; // 该TaskInProgress是否为setup task
    
   // The 'next' usable taskid of this tip
-  int nextTaskId = 0;
+  int nextTaskId = 0; // 该TaskInProgress的下一个可用Task Attempt ID
     
   // The taskid that took this TIP to SUCCESS
-  private TaskAttemptID successfulTaskId;
+  private TaskAttemptID successfulTaskId; // 使得该TaskInProgress运行成功的那个Task Attempt的ID
 
   // The first taskid of this tip
-  private TaskAttemptID firstTaskId;
+  private TaskAttemptID firstTaskId;  // 第一个运行的Task Attempt的id
   
   // Map from task Id -> TaskTracker Id, contains tasks that are
   // currently runnings
-  // 维护了当前运行的Task, 该Task运行在哪个TaskTracker上
+  // 维护了当前运行的Task ID与TaskTracker ID之间的映射关系, 即该Task运行在哪个TaskTracker上
   // TAID(TaskAttemptID) -> TaskTracker Id(TTID)
   private TreeMap<TaskAttemptID, String> activeTasks = new TreeMap<TaskAttemptID, String>();
   // All attempt Ids of this TIP
@@ -121,8 +121,9 @@ class TaskInProgress {
   private TreeMap<TaskAttemptID, String> cleanupTasks =
     new TreeMap<TaskAttemptID, String>();
 
-  // 记录了执行Task失败的TaskTracker的host信息。 set ---> (<TT HOST>,<TT HOST>,...)
+  // 记录了已经执行Task失败的TaskTracker的host信息。 set ---> (<TT HOST>,<TT HOST>,...)
   private TreeSet<String> machinesWhereFailed = new TreeSet<String>();
+  // 某个Task Attempt运行成功后，其它所有正在运行的Task Attempt保存在该集合中。
   // 满足如下3种条件的Task会被加入到该数据结构中(见TaskInProgress的shouldClose方法):
   // this.failed) || ((job.getStatus().getRunState() != JobStatus.RUNNING && (job.getStatus().getRunState() != JobStatus.PREP))
   // isComplete() && !(isMapTask() && !jobSetup && !jobCleanup && isComplete(taskid))
@@ -131,10 +132,11 @@ class TaskInProgress {
   private TreeSet<TaskAttemptID> tasksReportedClosed = new TreeSet<TaskAttemptID>();
   
   //list of tasks to kill, <TAID(TaskAttemptID)> -> <shouldFail>
-  // 记录了某个Task是否需要被Kill掉
+  // 记录了某个Task是否需要被Kill掉（待杀死的Task列表）
   private TreeMap<TaskAttemptID, Boolean> tasksToKill = new TreeMap<TaskAttemptID, Boolean>();
   
-  //task to commit, <taskattemptid>  
+  //task to commit, <taskattemptid>
+  // 等待被提交的Task Attempt，该Task Attempt最终使得TaskInProgress运行成功。
   private TaskAttemptID taskToCommit;
   
   private Counters counters = new Counters();
@@ -248,6 +250,7 @@ class TaskInProgress {
   void init(JobID jobId) {
     this.startTime = jobtracker.getClock().getTime();
     this.id = new TaskID(jobId, isMapTask(), partition);
+    // 是否开启skip mode（record 容错机制）
     this.skipping = startSkipping();
   }
 
