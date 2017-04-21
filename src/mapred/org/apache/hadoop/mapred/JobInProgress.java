@@ -142,12 +142,12 @@ public class JobInProgress {
   protected Credentials tokenStorage;
 
   // NetworkTopology Node to the set of TIPs
-  // node上没有运行的Task列表信息
+  // node上没有运行的map Task列表信息
   // 在调度Task之前，需要计算某个Task将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的Task的列表信息。
   Map<Node, List<TaskInProgress>> nonRunningMapCache;
   
   // Map of NetworkTopology Node to set of running TIPs
-  // 维护了某个Node上，当前正在运行的Task列表的信息。
+  // 维护了某个Node上，当前正在运行的map Task列表的信息。一个任务获得调度机会，其TIP便会添加进来。
   Map<Node, Set<TaskInProgress>> runningMapCache;
 
   // A list of non-local, non-running maps
@@ -165,7 +165,7 @@ public class JobInProgress {
   Set<TaskInProgress> nonLocalRunningMaps;
 
   // A list of non-running reduce TIPs
-  // JobTracker端维护的、没有运行的ReduceTask的列表。
+  // JobTracker端维护的、没有运行的Reduce Task的列表。
   Set<TaskInProgress> nonRunningReduces;
 
   // A set of running reduce TIPs
