@@ -234,6 +234,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   }
 
   // task运行过程中需要写本地文件，localStorage就是配置的本地文件目录(mapred.local.dir)。该值是在TaskTracker构造方法中初始化的，构造方法是在main函数中调用的。
+  // 管理TaskTracker本地文件系统的存储目录信息，如访问本地目录失败、检测目录可用性等。
   private LocalStorage localStorage;
   private long lastCheckDirsTime;
   private int lastNumFailures;
@@ -246,7 +247,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
   Server taskReportServer = null;
   InterTrackerProtocol jobClient;
-  
+
+  // 每个job对应一个TrackerDistributedCacheManager实例，比如，每次TaskTracker被分配执行一个Job的一组Task，
+  // 此时需要将该Job对应的资源文件和split相关数据从HDFS下载到TaskTracker本地，这些文件都需要进行管理，包括位置查询、文件访问、文件清理等。
   private TrackerDistributedCacheManager distributedCacheManager;
   static int FILE_CACHE_SIZE = 2000;
     
@@ -338,6 +341,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   final long mapRetainSize;
   final long reduceRetainSize;
 
+  // 用来控制MapReduce管理员管理Job和Queue级别操作的访问权限。
   private ACLsManager aclsManager;
   
   // Performance-related config knob to send an out-of-band heartbeat
@@ -359,6 +363,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private MapEventsFetcherThread mapEventsFetcher;
   final int workerThreads;
   CleanupQueue directoryCleanupThread;
+  // 为了保证TaskTracker与实际Task（MapTask/ReduceTask）运行的隔离性，会将Task在单独的JVM实例中运行，JvmManager用来管理Task运行所在的JVM实例的信息，包括创建/销毁JVM实例等操作。
   private volatile JvmManager jvmManager;
   
   private TaskMemoryManagerThread taskMemoryManager;
@@ -368,8 +373,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private long mapSlotMemorySizeOnTT = JobConf.DISABLED_MEMORY_LIMIT;
   private long reduceSlotSizeMemoryOnTT = JobConf.DISABLED_MEMORY_LIMIT;
   private long totalMemoryAllottedForTasks = JobConf.DISABLED_MEMORY_LIMIT;
+  // 用来计算系统的资源的插件，默认使用的是LinuxResourceCalculatorPlugin实现，可以方便地访问系统中的资源信息状态，如内存、CPU。
   private ResourceCalculatorPlugin resourceCalculatorPlugin = null;
 
+  // 负责管理TaskTracker节点上执行Task输出的日志信息，目前通过UserLogEvent定义了JVM_FINISHED、JOB_STARTED,、JOB_COMPLETED,、DELETE_JOB这4种事件，通过UserLogManager可以实现日志记录的输出。
   private UserLogManager userLogManager;
 
   static final String MAPRED_TASKTRACKER_MEMORY_CALCULATOR_PLUGIN_PROPERTY =
@@ -386,6 +393,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    */  
   private int probe_sample_size = 500;
 
+  // Map阶段需要输出临时文件，要对MapTask的输出写入TaskTracker本地文件系统，需要对这些输出数据进行分区（partition），IndexCache负责管理分区文件的相关信息。
   private IndexCache indexCache;
 
   /**
@@ -396,6 +404,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   /**
    * Handle to the specific instance of the {@link NodeHealthCheckerService}
    */
+  // 用来检测节点之间的心跳服务。
   private NodeHealthCheckerService healthChecker;
 
   /**
@@ -438,6 +447,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
   private ShuffleExceptionTracker shuffleExceptionTracking;
 
+  // 用来管理TaskTracker上运行的一些Task的监控数据，主要是采集某些点的数据，如Task完成时，Task失败时，Task超时时等，目前该组件中都是空实现
   private TaskTrackerInstrumentation myInstrumentation = null;
 
   public TaskTrackerInstrumentation getTaskTrackerInstrumentation() {
@@ -1826,6 +1836,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         }
 
         // Send the heartbeat and process the jobtracker's directives
+        // 向JobTracker发送心跳
         HeartbeatResponse heartbeatResponse = transmitHeartBeat(now);
 
         // Note the time when the heartbeat returned, use this to decide when to send the
@@ -1863,7 +1874,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             }
           }
         }
-        
+
+        // 获取心跳响应中的action命令
         TaskTrackerAction[] actions = heartbeatResponse.getActions();
         if(LOG.isDebugEnabled()) {
           LOG.debug("Got heartbeatResponse from JobTracker with responseId: " + 
@@ -1881,8 +1893,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         if (actions != null){ 
           for(TaskTrackerAction action: actions) {
             if (action instanceof LaunchTaskAction) {
+              // 执行Task，添加task到任务队列中
               addToTaskQueue((LaunchTaskAction)action);
             } else if (action instanceof CommitTaskAction) {
+              // 提交任务
               CommitTaskAction commitAction = (CommitTaskAction)action;
               if (!commitResponses.contains(commitAction.getTaskID())) {
                 LOG.info("Received commit task action for " + 
@@ -1890,6 +1904,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                 commitResponses.add(commitAction.getTaskID());
               }
             } else {
+              // 其它操作，添加到tasksToCleanup队列中等待被处理
               addActionToCleanup(action);
             }
           }
@@ -2723,6 +2738,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           // This while-loop attempts reconnects if we get network errors
           while (running && !staleState && !shuttingDown && !denied) {
             try {
+              // 主要逻辑在offerService()方法中
               State osState = offerService();
               if (osState == State.STALE) {
                 staleState = true;
@@ -3983,13 +3999,18 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       System.exit(-1);
     }
     try {
+      // 初始化作业配置
       JobConf conf=new JobConf();
       // enable the server to track time spent waiting on locks
       ReflectionUtils.setContentionTracing
         (conf.getBoolean("tasktracker.contention.tracking", false));
+      // 初始化度量统计系统
       DefaultMetricsSystem.initialize("TaskTracker");
+      // 根据作业配置 创建一个TaskTracker对象
       TaskTracker tt = new TaskTracker(conf);
+      // 注册MBean，方便外界工具检测TaskTracker的状态
       MBeans.register("TaskTracker", "TaskTrackerInfo", tt);
+      // 进入run方法
       tt.run();
     } catch (Throwable e) {
       LOG.error("Can not start task tracker because "+
