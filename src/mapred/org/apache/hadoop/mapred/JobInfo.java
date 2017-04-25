@@ -18,14 +18,14 @@
 
 package org.apache.hadoop.mapred;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 /**
  * Represents the basic information that is saved per a job when the 
@@ -76,8 +76,10 @@ class JobInfo implements Writable {
   }
 
   public void write(DataOutput out) throws IOException {
-    id.write(out);
-    user.write(out);
+    id.write(out);//写入JobId信息
+    user.write(out);//写入用户名称
+    // 写入Job提交目录（例如，/tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/ ，
+    // 该目录是在JobClient提交Job时在HDFS上创建的，用于将该Job所需要的资源都拷贝到该Job对应的提交目录下面，便于后续JobTracker能够读取这些数据）。
     WritableUtils.writeString(out, jobSubmitDir.toString());
   }
 }

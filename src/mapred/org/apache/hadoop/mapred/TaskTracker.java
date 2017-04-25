@@ -238,6 +238,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private LocalStorage localStorage;
   private long lastCheckDirsTime;
   private int lastNumFailures;
+  // 管理TaskTracker本地目录分配，初始化LocalDirAllocator基于配置mapred.local.dir指定的目录，它采用的Round-Robin方式，在Task运行之前需要写一个启动Task的脚本文件，使用LocalDirAllocator来控制对应文件的读写。
   private LocalDirAllocator localDirAllocator;
   String taskTrackerName;
   String localHostname;
@@ -245,7 +246,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   InetSocketAddress taskReportAddress;
 
+  // TaskTracker节点上启动的RPC Server，在其上运行的Task，在运行过程中会向TaskTracker汇报状态，使TaskTracker知道Task的运行状态报告。
   Server taskReportServer = null;
+  // 与JobTracker进行RPC通信的代理（Proxy）对象
   InterTrackerProtocol jobClient;
 
   // 每个job对应一个TrackerDistributedCacheManager实例，比如，每次TaskTracker被分配执行一个Job的一组Task，
@@ -266,6 +269,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * rpc calls fails for whatever reason, the previous status report is sent
    * again.
    */
+  // 维护TaskTracker当前的状态信息，主要包括：TaskTracker的配置信息、TaskTracker上资源状态信息、TaskTracker上运行的Task的状态报告信息。
   TaskTrackerStatus status = null;
   
   // The system-directory on HDFS where job files are stored 
@@ -274,6 +278,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   // The filesystem where job files are stored
   FileSystem systemFS = null;
   private FileSystem localFs = null;
+  // 用来处理Map输出的Jetty容器，其中MapOutputServlet会注册到该HTTP server中。
   private final HttpServer server;
     
   volatile boolean shuttingDown = false;
@@ -284,6 +289,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    */
   Map<TaskAttemptID, TaskInProgress> runningTasks = null;
   Map<JobID, RunningJob> runningJobs = new TreeMap<JobID, RunningJob>();
+  // 用来管理Job运行的令牌相关信息。
   private final JobTokenSecretManager jobTokenSecretManager
     = new JobTokenSecretManager();
 
@@ -359,13 +365,16 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   
   // Track number of completed tasks to send an out-of-band heartbeat
   private AtomicInteger finishedCount = new AtomicInteger(0);
-  
+
+  // 跟踪每个运行的Job对应的ReduceTask的Shuffle阶段，如果有Map完成，会对应着TaskCompletionEvent触发该线程，从已经完成的Map所在节点拷贝Map输出的中间结果数据，为ReduceTask运行做准备。
   private MapEventsFetcherThread mapEventsFetcher;
   final int workerThreads;
+  // 负责清理Job或Task运行完成后遗留下的一些不再使用的文件或目录。
   CleanupQueue directoryCleanupThread;
   // 为了保证TaskTracker与实际Task（MapTask/ReduceTask）运行的隔离性，会将Task在单独的JVM实例中运行，JvmManager用来管理Task运行所在的JVM实例的信息，包括创建/销毁JVM实例等操作。
   private volatile JvmManager jvmManager;
-  
+
+  // 管理在该TaskTracker上运行的Task使用内存的信息。
   private TaskMemoryManagerThread taskMemoryManager;
   private boolean taskMemoryManagerEnabled = true;
   private long totalVirtualMemoryOnTT = JobConf.DISABLED_MEMORY_LIMIT;
@@ -399,6 +408,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   /**
   * Handle to the specific instance of the {@link TaskController} class
   */
+  // 用来管理Task的初始化、完成、清理工作，还负责启动和终止Task运行所在的JVM实例。
   private TaskController taskController;
   
   /**
@@ -411,6 +421,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * Thread which checks CPU usage of Jetty and shuts down the TT if it
    * exceeds a configurable threshold.
    */
+  // 在Map阶段输出中间结果，Reduce阶段会基于HTTP协议（基于Jetty）来拷贝属于自己的分区，为了解决Jetty已知的一些类存在的Bug，
+  // 它们可能会影响TaskTracker，通过检测Jetty所在JVM实例使用CPU量，当超过配置的值时终止TaskTracker进程。
   private JettyBugMonitor jettyBugMonitor;
 
   
@@ -443,8 +455,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private List<TaskAttemptID> commitResponses = 
             Collections.synchronizedList(new ArrayList<TaskAttemptID>());
 
+  // 管理Job运行过程中，shuffle阶段的监控数据，包括一组计数器：serverHandlerBusy、outputBytes、failedOutputs、successOutputs、exceptionsCaught。
   private ShuffleServerInstrumentation shuffleServerMetrics;
 
+  // 跟踪Shuffle阶段出现异常情况的信息。
   private ShuffleExceptionTracker shuffleExceptionTracking;
 
   // 用来管理TaskTracker上运行的一些Task的监控数据，主要是采集某些点的数据，如Task完成时，Task失败时，Task超时时等，目前该组件中都是空实现
@@ -502,6 +516,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   /**
    * A daemon-thread that pulls tips off the list of things to cleanup.
    */
+  // 负责清理Job/Task执行完成后遗留的文件或目录。
   private Thread taskCleanupThread = new Thread(new Runnable() {
     public void run() {
       while (true) {
@@ -946,6 +961,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
     setIndexCache(new IndexCache(this.fConf));
 
+    // 把mapLauncher和reduceLauncher启动起来，这两个线程监控TaskLauncher类中的List<TaskInProgress> tasksToLaunch里面是否有Task需要执行
     mapLauncher = new TaskLauncher(TaskType.MAP, maxMapSlots);
     reduceLauncher = new TaskLauncher(TaskType.REDUCE, maxReduceSlots);
     mapLauncher.start();
@@ -1440,6 +1456,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                   localStorage.getDirsString());
       tip.setJobConf(jobConf);
       tip.setUGI(rjob.ugi);
+      // 启动Task
       tip.launchTask(rjob);
     }
   }
@@ -1844,6 +1861,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         lastHeartbeat = System.currentTimeMillis();
         
         // Check if the map-event list needs purging
+        // 获取到需要Recovered的Job列表
         Set<JobID> jobs = heartbeatResponse.getRecoveredJobs();
         if (jobs.size() > 0) {
           synchronized (this) {
@@ -1851,6 +1869,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             for (JobID job : jobs) {
               RunningJob rjob;
               synchronized (runningJobs) {
+                // TaskTracker端只需要从runningJobs中取出需要Recovered的Job，并查看其是否存在Fetch状态，如果存在，应该重新设置状态（主要对应于MapEventsFetcherThread 维护的TaskCompletionEvent列表，
+                // 触发ReduceTask拉取MapTask的输出中间结果），以便该Job的各个Task恢复运行。
                 rjob = runningJobs.get(job);          
                 if (rjob != null) {
                   synchronized (rjob) {
@@ -1864,6 +1884,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             }
 
             // Mark the reducers in shuffle for rollback
+            // 如果该ReduceTask正在运行于SHUFFLE阶段，需要将对应的Job的MapTask的输出拷贝到该ReduceTask所在的节点上，通过调用FetchStatus的reset方法重置状态，这样就重新恢复了ReduceTask的运行。
             synchronized (shouldReset) {
               for (Map.Entry<TaskAttemptID, TaskInProgress> entry 
                    : runningTasks.entrySet()) {
@@ -1896,7 +1917,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
               // 执行Task，添加task到任务队列中
               addToTaskQueue((LaunchTaskAction)action);
             } else if (action instanceof CommitTaskAction) {
-              // 提交任务
+              // 说明对应的该Task已经执行完成，修改TaskTracker维护的Task即Job状态，最后还要清理临时数据
               CommitTaskAction commitAction = (CommitTaskAction)action;
               if (!commitResponses.contains(commitAction.getTaskID())) {
                 LOG.info("Received commit task action for " + 
@@ -2494,8 +2515,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     //that estimate isn't currently being passed down to the TaskTrackers    
     return biggestSeenSoFar;
   }
-    
+
+  // 启动ReduceTask
   private TaskLauncher mapLauncher;
+  // 启动MapTask
   private TaskLauncher reduceLauncher;
   public JvmManager getJvmManagerInstance() {
     return jvmManager;
@@ -2622,6 +2645,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             tip.slotTaken = true;
           }
           //got a free slot. launch the task
+          // 启动Task
           startNewTask(tip);
         } catch (InterruptedException e) { 
           return; // ALL DONE
@@ -2668,6 +2692,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           RunningJob rjob = localizeJob(tip);
           tip.getTask().setJobFile(rjob.getLocalizedJobConf().toString());
           // Localization is done. Neither rjob.jobConf nor rjob.ugi can be null
+          // 启动Task
           launchTaskForJob(tip, new JobConf(rjob.getJobConf()), rjob); 
         } catch (Throwable e) {
           String msg = ("Error initializing " + tip.getTask().getTaskID() + 
@@ -4057,6 +4082,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * This class is used in TaskTracker's Jetty to serve the map outputs
    * to other nodes.
    */
+  // TaskTracker上启动一个Jetty容器，该Servlet用来负责暴露HTTP接口，供其它运行ReduceTask的TaskTracker拉取Map输出文件。
   public static class MapOutputServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final int MAX_BYTES_TO_READ = 64 * 1024;

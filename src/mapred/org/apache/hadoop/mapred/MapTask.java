@@ -342,27 +342,35 @@ class MapTask extends Task {
     // start thread that will handle communication with parent
     TaskReporter reporter = new TaskReporter(getProgress(), umbilical,
         jvmContext);
+    // startCommunicationThread内部创建了一个ping thread
     reporter.startCommunicationThread();
     boolean useNewApi = job.getUseNewMapper();
+    // 初始化
     initialize(job, getJobID(), reporter, useNewApi);
 
     // check if it is a cleanupJobTask
+    // 分别针对jobCleanup, jobSetup, taskCleanup, mapTask执行对应的代码逻辑
     if (jobCleanup) {
+      // 清理Job对应的相关目录和文件
       runJobCleanupTask(umbilical, reporter);
       return;
     }
     if (jobSetup) {
+      // 创建Job运行所需要的相关目录和文件
       runJobSetupTask(umbilical, reporter);
       return;
     }
     if (taskCleanup) {
+      // 清理一个Task对应的工作目录下与Task相关的目录或文件
       runTaskCleanupTask(umbilical, reporter);
       return;
     }
 
     if (useNewApi) {
+      // 调用用户编写的MapReduce程序中的Mapper中的处理逻辑
       runNewMapper(job, splitMetaInfo, umbilical, reporter);
     } else {
+      // 调用用户编写的MapReduce程序中的Mapper中的处理逻辑
       runOldMapper(job, splitMetaInfo, umbilical, reporter);
     }
     done(umbilical, reporter);

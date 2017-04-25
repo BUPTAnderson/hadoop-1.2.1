@@ -3903,6 +3903,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
       Path jobDir = getSystemDirectoryForJob(jobId);
       FileSystem.mkdirs(fs, jobDir, new FsPermission(SYSTEM_DIR_PERMISSION));
       FSDataOutputStream out = fs.create(getSystemFileForJob(jobId));
+      // 将JobInfo结构对应的数据写入到Job文件,具体写入内容查看write方法
       jobInfo.write(out);
       out.close();
     }

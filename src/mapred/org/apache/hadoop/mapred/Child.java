@@ -18,13 +18,6 @@
 
 package org.apache.hadoop.mapred;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.net.InetSocketAddress;
-import java.security.PrivilegedExceptionAction;
-import java.util.Arrays;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FSError;
@@ -47,6 +40,14 @@ import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.LogManager;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.net.InetSocketAddress;
+import java.security.PrivilegedExceptionAction;
+import java.util.Arrays;
+
 /** 
  * The main() for child processes. 
  */
@@ -66,6 +67,12 @@ class Child {
     return (job.getNumTasksToExecutePerJvm() != 1);
   }
 
+  // 调用main方法输入的参数如下：
+  // host：表示TaskTracker节点的主机名称
+  // port：表示TaskTracker节点RPC端口号
+  // taskID：表示启动的Task对应的TaskAttemptID，标识一个Task的一个运行实例
+  // log location：表示该Task运行实例对应的日志文件的路径
+  // JVM ID：表示该Task实例对应的JVMId信息，包括JobID、Task类型（MapTask/ReduceTask）、JVM编号（标识该JVM实例对应的id）
   public static void main(String[] args) throws Throwable {
     LOG.debug("Child starting");
 
@@ -105,7 +112,8 @@ class Child {
     
     // Set the credentials
     defaultConf.setCredentials(credentials);
-    
+
+    // 创建到TaskTracker的proxy connection
     final TaskUmbilicalProtocol umbilical = 
       taskOwner.doAs(new PrivilegedExceptionAction<TaskUmbilicalProtocol>() {
         @Override
@@ -119,6 +127,7 @@ class Child {
     
     int numTasksToExecute = -1; //-1 signifies "no limit"
     int numTasksExecuted = 0;
+    // 创建task log sync thread()
     Runtime.getRuntime().addShutdownHook(new Thread() {
       public void run() {
         try {
@@ -252,6 +261,7 @@ class Child {
             try {
               // use job-specified working directory
               FileSystem.get(job).setWorkingDirectory(job.getWorkingDirectory());
+              // 根据是map还是reduce分别调用MapTask和ReduceTask的run方法
               taskFinal.run(job, umbilical);        // run the task
             } finally {
               TaskLog.syncLogs
@@ -310,6 +320,7 @@ class Child {
         umbilical.fatalError(taskid, cause, jvmContext);
       }
     } finally {
+      // 停止proxy,断开Task汇报状态的RPC连接，Task运行结束
       RPC.stopProxy(umbilical);
       shutdownMetrics();
       // Shutting down log4j of the child-vm... 

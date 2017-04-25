@@ -351,6 +351,10 @@ class ReduceTask extends Task {
     this.umbilical = umbilical;
     job.setBoolean("mapred.skip.on", isSkipping());
 
+    // 三个阶段
+    // copy阶段：从运行MapTask的TaskTracker节点，拷贝属于该ReduceTask对应的Job所包含的MapTask的输出中间结果数据，这些数据存储在该Reduce所在TaskTracker的本地文件系统（可能会放在内存中），为后续阶段准备数据
+    // sort阶段：对从MapTask拉取过来的数据进行合并、排序
+    // reduce阶段：调用用户编写的MapReduce程序中的Reducer中的处理逻辑
     if (isMapOrReduce()) {
       copyPhase = getProgress().addPhase("copy");
       sortPhase  = getProgress().addPhase("sort");
@@ -359,8 +363,10 @@ class ReduceTask extends Task {
     // start thread that will handle communication with parent
     TaskReporter reporter = new TaskReporter(getProgress(), umbilical,
         jvmContext);
+    // startCommunicationThread方法里面会创建ping thread
     reporter.startCommunicationThread();
     boolean useNewApi = job.getUseNewReducer();
+    // 初始化
     initialize(job, getJobID(), reporter, useNewApi);
 
     // check if it is a cleanupJobTask
@@ -376,13 +382,17 @@ class ReduceTask extends Task {
       runTaskCleanupTask(umbilical, reporter);
       return;
     }
-    
+
+    // 下面是真正的reduceTask处理逻辑
+    // initCodec判断map输出有没有进行压缩，如果压缩返回解压缩类，如果没有压缩，返回null
     // Initialize the codec
     codec = initCodec();
 
     boolean isLocal = "local".equals(job.get("mapred.job.tracker", "local"));
     if (!isLocal) {
+      // 创建reduceCopier
       reduceCopier = new ReduceCopier(umbilical, job, reporter);
+      // fetchOutputs
       if (!reduceCopier.fetchOutputs()) {
         if(reduceCopier.mergeThrowable instanceof FSError) {
           throw (FSError)reduceCopier.mergeThrowable;
@@ -393,6 +403,7 @@ class ReduceTask extends Task {
     }
     copyPhase.complete();                         // copy is already complete
     setPhase(TaskStatus.Phase.SORT);
+    // 最终会调用TaskTracker的statusUpdate
     statusUpdate(umbilical);
 
     final FileSystem rfs = FileSystem.getLocal(job).getRaw();
@@ -402,13 +413,14 @@ class ReduceTask extends Task {
           !conf.getKeepFailedTaskFiles(), job.getInt("io.sort.factor", 100),
           new Path(getTaskID().toString()), job.getOutputKeyComparator(),
           reporter, spilledRecordsCounter, null)
-      : reduceCopier.createKVIterator(job, rfs, reporter);
+      : reduceCopier.createKVIterator(job, rfs, reporter); // createKVIterator
         
     // free up the data structures
     mapOutputFilesOnDisk.clear();
     
     sortPhase.complete();                         // sort is complete
-    setPhase(TaskStatus.Phase.REDUCE); 
+    setPhase(TaskStatus.Phase.REDUCE);
+    // 更新，最终会调用TaskTracker的statusUpdate
     statusUpdate(umbilical);
     Class keyClass = job.getMapOutputKeyClass();
     Class valueClass = job.getMapOutputValueClass();
