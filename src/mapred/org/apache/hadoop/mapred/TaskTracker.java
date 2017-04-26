@@ -119,6 +119,10 @@ import org.apache.hadoop.security.Credentials;
  * for Task assignments and reporting results.
  *
  *******************************************************/
+// MRConstants定义了一些常量
+// TaskUmbilicalProtocol定义了TaskTracker与Task之间的RPC协议
+// Runnable是Java库中的线程接口，实现该接口意味着将以线程形式启动TaskTracker
+// TaskTrackerMXBean实现了一个JMX MXBean, 方便外界监控工具(比如Ganglia，Nagios等)获取TaskTracker运行时的信息
 public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     Runnable, TaskTrackerMXBean {
   
@@ -166,6 +170,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   //for authorizing viewing of task logs of that job
   static String jobACLsFile = "job-acls.xml";
 
+  // TaskTracker是否正在运行
   volatile boolean running = true;
 
   /**
@@ -246,9 +251,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   InetSocketAddress taskReportAddress;
 
-  // TaskTracker节点上启动的RPC Server，在其上运行的Task，在运行过程中会向TaskTracker汇报状态，使TaskTracker知道Task的运行状态报告。
+  // TaskTracker节点上启动的RPC Server，在其上运行的Task，在运行过程中会通过RPC向该Server汇报进度状态，使TaskTracker知道Task的运行状态报告。
   Server taskReportServer = null;
-  // 与JobTracker进行RPC通信的代理（Proxy）对象
+  // RPC client， TaskTracker通过该client与JobTracker进行RPC通信来汇报心跳
   InterTrackerProtocol jobClient;
 
   // 每个job对应一个TrackerDistributedCacheManager实例，比如，每次TaskTracker被分配执行一个Job的一组Task，
@@ -257,6 +262,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   static int FILE_CACHE_SIZE = 2000;
     
   // last heartbeat response recieved
+  // 心跳响应ID
   short heartbeatResponseId = -1;
   
   static final String TASK_CLEANUP_SUFFIX = ".cleanup";
@@ -282,12 +288,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private final HttpServer server;
     
   volatile boolean shuttingDown = false;
-    
+
+  // 该TT上TaskAttemptID与TIP对应关系
   Map<TaskAttemptID, TaskInProgress> tasks = new HashMap<TaskAttemptID, TaskInProgress>();
   /**
    * Map from taskId -> TaskInProgress.
    */
+  // 该TT上正在运行的TaskAttemptID与TIP对应关系
   Map<TaskAttemptID, TaskInProgress> runningTasks = null;
+  // 该TT上正在运行的作业列表，如果一个作业中的任务在该TT上运行，则把该作业加入该数据结构。
   Map<JobID, RunningJob> runningJobs = new TreeMap<JobID, RunningJob>();
   // 用来管理Job运行的令牌相关信息。
   private final JobTokenSecretManager jobTokenSecretManager
@@ -315,7 +324,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   // 只要有一个写入点的剩余空间大小大于minSpaceStart，该TT就可以接收新的task
   long minSpaceStart = 0;
   //must have this much space free to start new tasks
-  boolean acceptNewTasks = true;
+  boolean acceptNewTasks = true; //是否接受新任务，每次汇报心跳时要将该值告诉JobTracker
   long minSpaceKill = 0;
   //if we run under this limit, kill one task
   //and make sure we never receive any new jobs
@@ -341,8 +350,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private JobConf fConf;
   private JobConf originalConf;
   private Localizer localizer;
-  private int maxMapSlots;
-  private int maxReduceSlots;
+  private int maxMapSlots; // TaskTracker上配置的Map slots数目
+  private int maxReduceSlots; // TaskTracker上配置的Reduce slot数目
   private int taskFailures;
   final long mapRetainSize;
   final long reduceRetainSize;
@@ -396,7 +405,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   /**
    * the minimum interval between jobtracker polls
    */
-  private volatile int heartbeatInterval = HEARTBEAT_INTERVAL_MIN;
+  private volatile int heartbeatInterval = HEARTBEAT_INTERVAL_MIN; // 心跳间隔
   /**
    * Number of maptask completion events locations to poll for at one time
    */  
@@ -422,7 +431,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * exceeds a configurable threshold.
    */
   // 在Map阶段输出中间结果，Reduce阶段会基于HTTP协议（基于Jetty）来拷贝属于自己的分区，为了解决Jetty已知的一些类存在的Bug，
-  // 它们可能会影响TaskTracker，通过检测Jetty所在JVM实例使用CPU量，当超过配置的值时终止TaskTracker进程。
+  // 它们可能会影响TaskTracker，通过检测Jetty所在JVM实例使用CPU量，当超过配置的值时终止TaskTracker进程。这是应对Jetty中存在的bug临时启用的一个监控线程。
   private JettyBugMonitor jettyBugMonitor;
 
   
@@ -968,9 +977,11 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     reduceLauncher.start();
 
     // create a localizer instance
+    // 任务本地化，即准备任务运行环境
     setLocalizer(new Localizer(localFs, localStorage.getDirs()));
 
     //Start up node health checker service.
+    // 开启节点状况检查
     if (shouldStartHealthMonitor(this.fConf)) {
       startHealthMonitor(this.fConf);
     }
@@ -1577,6 +1588,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     InetSocketAddress infoSocAddr = NetUtils.createSocketAddr(infoAddr);
     String httpBindAddress = infoSocAddr.getHostName();
     int httpPort = infoSocAddr.getPort();
+    // 将TaskTracker相关信息显示到Web前端
     this.server = new HttpServer("task", httpBindAddress, httpPort,
         httpPort == 0, conf, aclsManager.getAdminsAcl());
     workerThreads = conf.getInt("tasktracker.http.threads", 40);
@@ -1602,6 +1614,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     setUserLogManager(new UserLogManager(conf, taskController));
     SecurityUtil.login(originalConf, TT_KEYTAB_FILE, TT_USER_NAME);
 
+    // 初始化，里面包含jvmManager，taskReportServer，distributedCacheManager，jobClient, mapEventsFetcher的初始化
     initialize();
     this.shuffleServerMetrics = ShuffleServerInstrumentation.create(this);
     server.setAttribute("task.tracker", this);
@@ -4031,9 +4044,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         (conf.getBoolean("tasktracker.contention.tracking", false));
       // 初始化度量统计系统
       DefaultMetricsSystem.initialize("TaskTracker");
-      // 根据作业配置 创建一个TaskTracker对象
+      // 根据作业配置 创建一个TaskTracker对象, 会进行很多初始化操作
       TaskTracker tt = new TaskTracker(conf);
-      // 注册MBean，方便外界工具检测TaskTracker的状态
+      // 注册MXBean，方便外界工具检测TaskTracker的状态
       MBeans.register("TaskTracker", "TaskTrackerInfo", tt);
       // 进入run方法
       tt.run();
