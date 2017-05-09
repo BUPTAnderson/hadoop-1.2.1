@@ -247,7 +247,8 @@ abstract class TaskRunner extends Thread {
         setupCmds.add(sb.toString());
       }
       setupCmds.add(setup);
-      
+
+      // 通过jvmManager来为每个Task分配一个Java虚拟机环境让其执行，避免任务之间的干扰
       launchJvmAndWait(setupCmds, vargs, stdout, stderr, logSize, workDir);
       tracker.getTaskTrackerInstrumentation().reportTaskEnd(t.getTaskID());
       if (exitCodeSet) {
@@ -289,6 +290,7 @@ abstract class TaskRunner extends Thread {
   void launchJvmAndWait(List <String> setup, Vector<String> vargs, File stdout,
       File stderr, long logSize, File workDir)
       throws InterruptedException, IOException {
+    // launchJvm方法会启动Task JVM运行Task
     jvmManager.launchJvm(this, jvmManager.constructJvmEnv(setup, vargs, stdout,
         stderr, logSize, workDir, conf));
     synchronized (lock) {

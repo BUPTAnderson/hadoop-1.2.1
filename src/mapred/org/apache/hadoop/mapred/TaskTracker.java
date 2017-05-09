@@ -902,7 +902,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     InetSocketAddress socAddr = NetUtils.createSocketAddr(address);
     String bindAddress = socAddr.getHostName();
     int tmpPort = socAddr.getPort();
-    
+
+    // 新建一个JvmManager来管理着mapJvmManager和reduceJvmManager，这俩都是JvmManagerForType
     this.jvmManager = new JvmManager(this);
 
     // Set service-level authorization security policy
@@ -916,14 +917,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       ServiceAuthorizationManager.refresh(fConf, policyProvider);
     }
     
-    // RPC initialization
+    // RPC initialization，RPC初始值，采用最大的slot值
     int max = maxMapSlots > maxReduceSlots ? 
                        maxMapSlots : maxReduceSlots;
     //set the num handlers to max*2 since canCommit may wait for the duration
     //of a heartbeat RPC
+    // 创建和Task通信的Server端对象，线程大小为2倍的slot大小，Task通过RPC向该Server汇报进度
     this.taskReportServer = RPC.getServer(this, bindAddress,
         tmpPort, 2 * max, false, this.fConf, this.jobTokenSecretManager);
-    this.taskReportServer.start();
+    this.taskReportServer.start(); // 启动
 
     // get the assigned address
     this.taskReportAddress = taskReportServer.getListenerAddress();
@@ -934,11 +936,12 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     this.taskTrackerName = "tracker_" + localHostname + ":" + taskReportAddress;
     LOG.info("Starting tracker " + taskTrackerName);
 
-    // Initialize DistributedCache
+    // Initialize DistributedCache 构造一个distributedCacheManager分布式缓存管理并启动CleanupThread线程周期性的检查和清理不再使用的文件
     this.distributedCacheManager = new TrackerDistributedCacheManager(
-        this.fConf, taskController);
-    this.distributedCacheManager.startCleanupThread();
-    
+        this.fConf, taskController);  // 初始化分布式缓存系统
+    this.distributedCacheManager.startCleanupThread();  // 启动
+
+    // 创建和JobTracker通信的客户端对象
     this.jobClient = (InterTrackerProtocol) 
     UserGroupInformation.getLoginUser().doAs(
         new PrivilegedExceptionAction<Object>() {
@@ -951,6 +954,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     this.justInited = true;
     this.running = true;    
     // start the thread that will fetch map task completion events
+    // 启动一个MapEventsFetcherThread线程用于获取Map任务的输出数据信息，获取已运行完成的Map Task列表，为Reduce Task远程拷贝数据做准备
     this.mapEventsFetcher = new MapEventsFetcherThread();
     mapEventsFetcher.setDaemon(true);
     mapEventsFetcher.setName(
@@ -964,6 +968,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     resourceCalculatorPlugin = 
       ResourceCalculatorPlugin.getResourceCalculatorPlugin(clazz, fConf);
     LOG.info(" Using ResourceCalculatorPlugin : " + resourceCalculatorPlugin);
+    // 初始化内存，做任务内存监控，包括构造一个TaskMemoryManager对象
     initializeMemoryManagement();
 
     getUserLogManager().clearOldUserLogs(fConf);
@@ -1561,6 +1566,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
   /**
    * Start with the local machine name, and the default JobTracker
+   * 在构造函数中，除了获取一些基本的设置参数外，只初始化了taskController，server等。其他的初始化工作是调用方法initialize完成的。
    */
   public TaskTracker(JobConf conf) throws IOException, InterruptedException {
     originalConf = conf;
@@ -1570,15 +1576,19 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     skipVersionCheck = conf.getBoolean(
         CommonConfigurationKeys.HADOOP_SKIP_VERSION_CHECK_KEY,
         CommonConfigurationKeys.HADOOP_SKIP_VERSION_CHECK_DEFAULT);
+    // 获取文件cache大小，默认2000
     FILE_CACHE_SIZE = conf.getInt("mapred.tasktracker.file.cache.size", 2000);
+    // 获取map和reduce最大的slot数量,默认都是2
     maxMapSlots = conf.getInt(
                   "mapred.tasktracker.map.tasks.maximum", 2);
     maxReduceSlots = conf.getInt(
                   "mapred.tasktracker.reduce.tasks.maximum", 2);
+    // 获取节点健康检查间隔时间，默认为60s
     diskHealthCheckInterval = conf.getLong(DISK_HEALTH_CHECK_INTERVAL_PROPERTY,
                                            DEFAULT_DISK_HEALTH_CHECK_INTERVAL);
     UserGroupInformation.setConfiguration(originalConf);
     aclsManager = new ACLsManager(conf, new JobACLsManager(conf), null);
+    // 获取jobTracker的地址
     this.jobTrackAddr = JobTracker.getAddress(conf);
     String infoAddr = 
       NetUtils.getServerAddress(conf,
@@ -1588,7 +1598,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     InetSocketAddress infoSocAddr = NetUtils.createSocketAddr(infoAddr);
     String httpBindAddress = infoSocAddr.getHostName();
     int httpPort = infoSocAddr.getPort();
-    // 将TaskTracker相关信息显示到Web前端
+    // 构造TaskTracker的HttpServer，可以从浏览器查看该taskTracker的运行情况及所有task
     this.server = new HttpServer("task", httpBindAddress, httpPort,
         httpPort == 0, conf, aclsManager.getAdminsAcl());
     workerThreads = conf.getInt("tasktracker.http.threads", 40);
@@ -1605,6 +1615,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // mapred.local.dir, Task 在运行的过程中，是需要写本地文件系统的，Hadoop中就有配置选项 mapred.local.dir 来配置这个本地文件的写入点，可以有多个写入点，用逗号隔开。
     localStorage = new LocalStorage(fConf.getLocalDirs());
     localStorage.checkDirs();
+    // 构造一个TaskController（是一个接口）默认是DefaultTaskController，用来控制任务的初始化、终结、清理tasks的，也可以启动和杀死tasks的JVM
     taskController = 
       (TaskController)ReflectionUtils.newInstance(taskControllerClass, fConf);
     taskController.setup(localDirAllocator, localStorage);
@@ -1658,8 +1669,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
     server.addInternalServlet("mapOutput", "/mapOutput", MapOutputServlet.class);
     server.addServlet("taskLog", "/tasklog", TaskLogServlet.class);
+    // 启动HttpServer
     server.start();
     this.httpPort = server.getPort();
+    // 检查jetty服务器，由于当端口号小于0的情况下，jetty有bug，所以在这种情况下，设置shuttingDown为true。
     checkJettyPort(httpPort);
     LOG.info("FILE_CACHE_SIZE for mapOutputServlet set to : " + FILE_CACHE_SIZE);
     mapRetainSize = conf.getLong(TaskLogsTruncater.MAP_USERLOG_RETAIN_SIZE, 
@@ -1778,13 +1791,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * Main service loop.  Will stay in this loop forever.
    */
   State offerService() throws Exception {
-    long lastHeartbeat = System.currentTimeMillis();
+    long lastHeartbeat = System.currentTimeMillis(); //上一次发心跳距现在时间
 
+    // 此循环主要根据控制完成task个数控制心跳间隔。
     while (running && !shuttingDown) {
       try {
-        long now = System.currentTimeMillis();
+        long now = System.currentTimeMillis(); //获得当前时间
         
         // accelerate to account for multiple finished tasks up-front
+        // 通过完成的任务数动态控制心跳间隔时间
         long remaining = 
           (lastHeartbeat + getHeartbeatInterval(finishedCount.get())) - now;
         
@@ -1817,6 +1832,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         if(justInited) {
           String jtBuildVersion = jobClient.getBuildVersion();
           String jtVersion = jobClient.getVIVersion();
+          // jtBuildVersion，代码编译版本号，例如：1.2.1 from 1503152 by mattf source checksum 6923c86528809c4e7e6f493b6b413a9a
+          // jtVersion，VersionInfo类的版本号例如：1.2.1
           if (!isPermittedVersion(jtBuildVersion, jtVersion)) {
             String msg = "Shutting down. Incompatible version or build version." +
               "TaskTracker version '" + VersionInfo.getVersion() +
@@ -1833,9 +1850,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             } catch(Exception e ) {
               LOG.info("Problem reporting to jobtracker: " + e);
             }
-            return State.DENIED;
+            return State.DENIED; // 如果版本不一致，返回State.DENIED
           }
-          
+
+          // 获取mapred.system.dir配置的目录,该目录是job中间结果及job信息存放目录
           String dir = jobClient.getSystemDir();
           while (dir == null) {
             LOG.info("Failed to get system directory...");
@@ -1853,20 +1871,23 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           systemFS = systemDirectory.getFileSystem(fConf);
         }
 
+        // TaskTracker会周期性的检查mapred.system.dir配置的目录是否有损坏
         now = System.currentTimeMillis();
         if (now > (lastCheckDirsTime + diskHealthCheckInterval)) {
+          // 检查目录是否有损坏
           localStorage.checkDirs();
           lastCheckDirsTime = now;
           int numFailures = localStorage.numFailures();
           // Re-init the task tracker if there were any new failures
           if (numFailures > lastNumFailures) {
             lastNumFailures = numFailures;
-            return State.STALE;
+            return State.STALE; // 发现故障，返回State.STALE，TaskTracker会重新对自己进行初始化
           }
         }
 
         // Send the heartbeat and process the jobtracker's directives
-        // 向JobTracker发送心跳
+        // 向JobTracker发送心跳，在transmitHeartBeat()函数处理中，TaskTracker会创建一个新的TaskTrackerStatus对象记录目前任务的执行状况，检查目前执行的Task数目以及本地磁盘的空间使用情况等，
+        // 如果可以接收新的Task则设置heartbeat()的askForNewTask参数为true。然后通过RPC接口调用JobTracker的heartbeat()方法发送过去，heartbeat()返回值TaskTrackerAction数组。
         HeartbeatResponse heartbeatResponse = transmitHeartBeat(now);
 
         // Note the time when the heartbeat returned, use this to decide when to send the
@@ -1883,7 +1904,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
               RunningJob rjob;
               synchronized (runningJobs) {
                 // TaskTracker端只需要从runningJobs中取出需要Recovered的Job，并查看其是否存在Fetch状态，如果存在，应该重新设置状态（主要对应于MapEventsFetcherThread 维护的TaskCompletionEvent列表，
-                // 触发ReduceTask拉取MapTask的输出中间结果），以便该Job的各个Task恢复运行。
+                // 触发ReduceTask拉取MapTask的输出中间结果），以便该Job的各个Task恢复运行。从而迫使这些Reduce Task重新从Map Task端拷贝数据
                 rjob = runningJobs.get(job);          
                 if (rjob != null) {
                   synchronized (rjob) {
@@ -1916,15 +1937,17 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                     heartbeatResponse.getResponseId() + " and " + 
                     ((actions != null) ? actions.length : 0) + " actions");
         }
+        // 如果收到的是ReinitTrackerAction命令，则返回State.STALE，重新进行初始化和
         if (reinitTaskTracker(actions)) {
           return State.STALE;
         }
             
         // resetting heartbeat interval from the response.
-        heartbeatInterval = heartbeatResponse.getHeartbeatInterval();
+        heartbeatInterval = heartbeatResponse.getHeartbeatInterval(); // 修正心跳间隔
         justStarted = false;
         justInited = false;
-        if (actions != null){ 
+        if (actions != null){
+          // 遍历这个数组，如果是一个新任务指令即LaunchTaskAction则调用addToTaskQueue加入到待执行队列
           for(TaskTrackerAction action: actions) {
             if (action instanceof LaunchTaskAction) {
               // 执行Task，添加task到任务队列中
@@ -1938,12 +1961,16 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                 commitResponses.add(commitAction.getTaskID());
               }
             } else {
-              // 其它操作，添加到tasksToCleanup队列中等待被处理
+              // 其它操作，添加到tasksToCleanup队列中等待被处理，如执行KillJobAction或者KillTaskAction等
               addActionToCleanup(action);
             }
           }
         }
+        // 遍历runningTasks杀死一定时间内没有汇报进度的Task
         markUnresponsiveTasks();
+        // 当磁盘空间少于mapred.local.dir.minspacekill（默认为0）时候，寻找合适的任务将其杀死以释放空间。期间不接受任何新的task，acceptNewTasks=false，
+        // 通过findTaskToKill(null)方法(会遍历runningTasks，优先考虑杀死reduce任务)找到合适的TaskInProgress killMe，执行purgeTask(killMe, false)。
+        // 一旦空间不足而出现杀死task的情况出现，就会一直不接受任何新的task，直到所有的task执行完毕和所有的清理task也执行完毕，但仍会正常向JobTracker发送心跳信息，信息内容就会有所变化。
         killOverflowingTasks();
             
         //we've cleaned up, resume normal operation
@@ -2138,7 +2165,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       // Clear transient status information which should only
       // be sent once to the JobTracker
       // 接下来是清除TaskInProgress的TaskStatus的临时信息（diagnosticInfo），从clearStatus()方法的注释可以看出diagnosticInfo信息只是在Task向TaskTracker，
-      // 或者TaskTracker向JobTracker发送一个状态更新信息时的临时诊断信息，所以在发送完成之后需要清除。
+      // 或者TaskTracker向JobTracker发送一个状态更新信息时的临时诊断信息，这些状态信息是瞬时的，仅发送一次，所以在发送完成之后需要清除。这些瞬时的状态信息是在构造TaskTrackerStatus时通过cloneAndResetRunningTaskStatuses(sendCounters)生成的。
       for (TaskInProgress tip: runningTasks.values()) {
         tip.getStatus().clearStatus();
       }
@@ -2422,6 +2449,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       //we give up! do not accept new tasks until
       //all the ones running have finished and they're all cleared up
       synchronized (this) {
+        // findTaskToKill找到合适的TaskInProgress
         TaskInProgress killMe = findTaskToKill(null);
 
         if (killMe!=null) {
@@ -2543,6 +2571,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   }
 
   private void addToTaskQueue(LaunchTaskAction action) {
+    // mapLauncher和reduceLauncher都是TaskLauncher 这两个属性是在TaskTracker构造函数里面调用initialize方法进行初始化的
+    // （该类是TaskTracker类的一个内部类，具有一个数据成员，是 TaskTracker.TaskInProgress类型的队列。在此特别注意，在TaskTracker类内部所提到的TaskInProgress 类均为TaskTracker的内部类
     if (action.getTask().isMapTask()) {
       mapLauncher.addToTaskQueue(action);
     } else {
@@ -2553,6 +2583,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   class TaskLauncher extends Thread {
     private IntWritable numFreeSlots;
     private final int maxSlots;
+    // 特别注意这里的TaskInProgress是TaskTracker的内部类，注意与org.apache.hadoop.mapred.TaskInProgress进行区分
     private List<TaskInProgress> tasksToLaunch;
 
     public TaskLauncher(TaskType taskType, int numSlots) {
@@ -2767,20 +2798,26 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    */
   public void run() {
     try {
+      // getUserLogManager().start()会启动两个线程：用户日志清理线程和监控日志行为线程
       getUserLogManager().start();
+      // 启动一个taskCleanupThread线程，这个线程会始终监视BlockingQueue<TaskTrackerAction> tasksToCleanup(用来存放要被清理的TaskInProgress)，里面存储的是KillJobAction或者是KillTaskAction类型
       startCleanupThreads();
+      // 是否JobTracker拒绝TaskTracker的心跳报告
       boolean denied = false;
+      // 如果TaskTracker处于运行状态，而且jetty服务器运行正常，并且没有被JobTracker拒绝请求，那么就一直循环
       while (running && !shuttingDown) {
-        boolean staleState = false;
+        boolean staleState = false; // 状态信息
         try {
           // This while-loop attempts reconnects if we get network errors
+          // 外面的条件加上如果状态信息为false，那么就一直循环，这种方式是为了保证，当网络出现问题的时候，能够重新连接。即一旦连接断开就循环尝试连接JobTracker
           while (running && !staleState && !shuttingDown && !denied) {
             try {
-              // 主要逻辑在offerService()方法中
+              // 如果连接JobTracker服务成功，TaskTracker就会调用offerService()函数进入主执行循环中，主要逻辑在offerService()方法中，进行具体和JobTracker的通信
+              // 这个offerService方法中有一个while循环，会每隔一段时间与JobTracker通讯一次，调用transmitHeartBeat()，获得HeartbeatResponse信息，没有其它状况offerService中的while会一直循环执行
               State osState = offerService();
-              if (osState == State.STALE) {
+              if (osState == State.STALE) { // 返回的状态不正常
                 staleState = true;
-              } else if (osState == State.DENIED) {
+              } else if (osState == State.DENIED) { // 返回的状态不正常
                 denied = true;
               }
             } catch (Exception ex) {
@@ -2799,15 +2836,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           // here even if shuttingDown as shuttingDown can be set even
           // if shutdown is not called.
           if (!denied) {
-            close();
+            close(); // 只要是出现异常，或者是退出死循环，那么都关闭资源，重新启动资源
           }
         }
-        if (shuttingDown) { return; }
+        if (shuttingDown) { return; } // 如果是jetty服务器问题，那么直接退出
         if (denied) { break; }
         LOG.warn("Reinitializing local state");
-        initialize();
+        initialize(); // 初始化所有成员和参数
       }
-      if (denied) {
+      if (denied) { // 如果JobTracker拒绝请求，那么关闭httpserver
         shutdown();
       }
     } catch (IOException iex) {
