@@ -143,6 +143,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   static final String CONF_VERSION_DEFAULT = "default";
 
   static final long WAIT_FOR_DONE = 3 * 1000;
+  // TaskTracker对外的http端口号
   private int httpPort;
 
   static enum State {NORMAL, STALE, INTERRUPTED, DENIED}
@@ -245,7 +246,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private int lastNumFailures;
   // 管理TaskTracker本地目录分配，初始化LocalDirAllocator基于配置mapred.local.dir指定的目录，它采用的Round-Robin方式，在Task运行之前需要写一个启动Task的脚本文件，使用LocalDirAllocator来控制对应文件的读写。
   private LocalDirAllocator localDirAllocator;
+  // TaskTracker名称
   String taskTrackerName;
+  // TaskTracker主机名
   String localHostname;
   InetSocketAddress jobTrackAddr;
     
@@ -965,6 +968,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     Class<? extends ResourceCalculatorPlugin> clazz =
         fConf.getClass(TT_RESOURCE_CALCULATOR_PLUGIN,
                        null, ResourceCalculatorPlugin.class);
+    // 初始化可插拔组件ResourceCalculatorPlugin， 如果没有设置即clazz为null，判断系统是否是linux，如果是的话构造 new LinuxResourceCalculatorPlugin()实例
     resourceCalculatorPlugin = 
       ResourceCalculatorPlugin.getResourceCalculatorPlugin(clazz, fConf);
     LOG.info(" Using ResourceCalculatorPlugin : " + resourceCalculatorPlugin);
@@ -986,8 +990,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     setLocalizer(new Localizer(localFs, localStorage.getDirs()));
 
     //Start up node health checker service.
-    // 开启节点状况检查
+    // 如果在mapred-site.xml中设置了mapred.healthChecker.script.path，则开启节点健康状况检查(实际是一个定时任务，定时检查节点健康状况)
     if (shouldStartHealthMonitor(this.fConf)) {
+      // 构造NodeHealthCheckerService对象
       startHealthMonitor(this.fConf);
     }
     
@@ -1800,13 +1805,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         
         // accelerate to account for multiple finished tasks up-front
         // 通过完成的任务数动态控制心跳间隔时间
+        // 判断上次心跳的时间+心跳等待时间是否已经到了当前时间，如果到了可以发送新的心跳包
         long remaining = 
           (lastHeartbeat + getHeartbeatInterval(finishedCount.get())) - now;
         
         if (remaining <= 0) {
           finishedCount.set(0);
         }
-          
+
+        // 如果还没到，时间有剩余，则要强行等待剩余的时间
         while (remaining > 0) {
           // sleeps for the wait time or 
           // until there are *enough* empty slots to schedule tasks
@@ -1953,7 +1960,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
               // 执行Task，添加task到任务队列中
               addToTaskQueue((LaunchTaskAction)action);
             } else if (action instanceof CommitTaskAction) {
-              // 说明对应的该Task已经执行完成，修改TaskTracker维护的Task即Job状态，最后还要清理临时数据
+              // 提交任务，说明对应的该Task已经执行完成，修改TaskTracker维护的Task即Job状态，最后还要清理临时数据
               CommitTaskAction commitAction = (CommitTaskAction)action;
               if (!commitResponses.contains(commitAction.getTaskID())) {
                 LOG.info("Received commit task action for " + 
@@ -2045,7 +2052,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     // 所以直接将上次收集到的TT状态信息（封装在status中）发送给JT；相反，status==null，则表示上次心跳已完成，重新收集TT的状态信息，同样封装到status中。
     if (status == null) {
       synchronized (this) {
-        // 重新收集TT的状态信息， 构造TaskTrackerStatus, 看一下方法cloneAndResetRunningTaskStatuses实现，看一下TaskTrackerStatus构造方法。
+        // 重新收集TT的状态信息， 构造TaskTrackerStatus, 看一下方法cloneAndResetRunningTaskStatuses实现，该方法返回List<TaskStatus>，是当前TaskTracker上各个任务运行状态，看一下TaskTrackerStatus构造方法。
         status = new TaskTrackerStatus(taskTrackerName, localHostname, 
                                        httpPort, 
                                        cloneAndResetRunningTaskStatuses(
@@ -2082,17 +2089,23 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       localMinSpaceStart = minSpaceStart;
     }
     if (askForNewTask) {
-      // enoughFreeSpace()方法会再次根据localMinSpaceStart判断是否可接收新任务。
+      // enoughFreeSpace()方法会再次根据localMinSpaceStart判断是否可接收新任务。判断的依据是磁盘剩余空间大于localMinSpaceStart(localMinSpaceStart = minSpaceStart, minSpaceStart实际是配置参数mapred.local.dir.minspacestart的值，默认为0)
       askForNewTask = enoughFreeSpace(localMinSpaceStart);
       long freeDiskSpace = getFreeSpace();
       // 接下来就是获取TT的一些资源信息，如总虚拟内存，总物理内存，可用的虚拟内存，可用的物理内存，CPU使用情况等。接着将这些值添加到status中去，发送给JT。
       long totVmem = getTotalVirtualMemoryOnTT();
       long totPmem = getTotalPhysicalMemoryOnTT();
+      // 通过resourceCalculatorPlugin获取可用的虚拟内存大小
       long availableVmem = getAvailableVirtualMemoryOnTT();
+      // 通过resourceCalculatorPlugin获取可用的物理内存大小
       long availablePmem = getAvailablePhysicalMemoryOnTT();
+      // 通过resourceCalculatorPlugin获取CPU使用时间
       long cumuCpuTime = getCumulativeCpuTimeOnTT();
+      // 通过resourceCalculatorPlugin获取CPU主频，单位kHz
       long cpuFreq = getCpuFrequencyOnTT();
+      // 通过resourceCalculatorPlugin获取CPU（处理器）个数
       int numCpu = getNumProcessorsOnTT();
+      // 通过resourceCalculatorPlugin获取CPU使用率，单位为%
       float cpuUsage = getCpuUsageOnTT();
 
       status.getResourceStatus().setAvailableSpace(freeDiskSpace);
@@ -2115,6 +2128,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     TaskTrackerHealthStatus healthStatus = status.getHealthStatus();
     synchronized (this) {
       if (healthChecker != null) {
+        // healthChecker是在TaskTracker的initialize()中初始化的，将healthChecker检查到的健康状况赋值给healthStatus
         healthChecker.setHealthStatus(healthStatus);
       } else {
         healthStatus.setNodeHealthy(true);
@@ -2596,8 +2610,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
     public void addToTaskQueue(LaunchTaskAction action) {
       synchronized (tasksToLaunch) {
+        // 新建1个TIP，并加入tasksToLaunch列表
         TaskInProgress tip = registerTask(action, this);
         tasksToLaunch.add(tip);
+        // 唤醒所有被tasksToLaunch wait的操作，说明此时有新的任务了
         tasksToLaunch.notifyAll();
       }
     }
@@ -2643,6 +2659,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                      " which needs " + task.getNumSlotsRequired() + " slots");
           }
           //wait for free slots to run
+          // 等待空闲的slot
           synchronized (numFreeSlots) {
             boolean canLaunch = true;
             while (numFreeSlots.get() < task.getNumSlotsRequired()) {
@@ -2689,7 +2706,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             tip.slotTaken = true;
           }
           //got a free slot. launch the task
-          // 启动Task
+          // 获得了空闲的slot，启动Task
           startNewTask(tip);
         } catch (InterruptedException e) { 
           return; // ALL DONE
@@ -3980,7 +3997,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   private synchronized List<TaskStatus> cloneAndResetRunningTaskStatuses(
                                           boolean sendCounters) {
-    // runningTasks队列保存了该TT上接收的所有未完成的Task任务，(实际是当前TT上所有的Task？runningTasks中应该是只包含未完成的task信息, 未完成的不一定是RUNNING，可能是UNSINGED等...)
+    // runningTasks队列保存了该TT上接收的所有未完成的Task任务，（实际是所有Task，这些Task可能处于各种状态，将这些状态汇报给TaskTracker后会对runningTasks中非未完成的Task移除掉？）
+    // (实际是当前TT上所有的Task, 这些Task可runningTasks中应该是只包含未完成的task信息, 未完成的不一定是RUNNING，可能是UNSINGED等...)
     // 如果一个task处于SUCCEEDED/FAILED/KILLED状态，则表示该task已完成（不论是失败还是成功，亦或是被kill掉）,会被从runningTasks队列中移除
     List<TaskStatus> result = new ArrayList<TaskStatus>(runningTasks.size());
     for(TaskInProgress tip: runningTasks.values()) {
@@ -3991,8 +4009,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       if (status.getRunState() != TaskStatus.State.RUNNING) {
         status.setIncludeCounters(true);
       }
-      result.add((TaskStatus)status.clone());
-      status.clearStatus();
+      result.add((TaskStatus)status.clone()); // 克隆，值传递
+      status.clearStatus(); // 不会对克隆的对象的diagnosticInfo属性有影响
     }
     return result;
   }
@@ -4614,7 +4632,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * @param conf Configuration used by the service.
    */
   private void startHealthMonitor(Configuration conf) {
+    // 构造方法里面会调用initialize方法构造NodeHealthMonitorExecutor对象，该对象是TimerTask的子类
     healthChecker = new NodeHealthCheckerService(conf);
+    // 构造Timer,传入NodeHealthMonitorExecutor
     healthChecker.start();
   }
   
