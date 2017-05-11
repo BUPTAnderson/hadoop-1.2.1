@@ -594,11 +594,14 @@ public class JobInProgress {
     Set<String> uniqueHosts = new TreeSet<String>();
     for (int i = 0; i < splits.length; i++) {
       String[] splitLocations = splits[i].getLocations();
+      // 将没有找到对应分片的map放入nonLocalMaps中， 这些map不需要考虑数据本地性
       if (splitLocations == null || splitLocations.length == 0) {
         nonLocalMaps.add(maps[i]);
         continue;
       }
 
+      // 获取分片所在节点，然后将节点与其上分片对应的map对应起来，放入Map<Node, List<TaskInProgress>> cache之中，需要注意的是还会根据设定的网络深度存储父节点(可能存在多个子节点)下所有子节点包含的map，
+      // 从这可以看出这里实现了本地化，将这个cache赋值给nonRunningMapCache表示还未运行的map。
       for(String host: splitLocations) {
         Node node = jobtracker.resolveAndAddToTopology(host);
         uniqueHosts.add(host);
@@ -789,7 +792,7 @@ public class JobInProgress {
           "recieved splits for job " + jobId + "! " +
           "numMapTasks=" + numMapTasks + ", #splits=" + splits.length);
     }
-    // 设置map task数量
+    // 设置map task数量, map task的个数就是input splits的个数
     numMapTasks = splits.length;
 
     // Sanity check the locations so we don't create/initialize unnecessary tasks
@@ -821,7 +824,12 @@ public class JobInProgress {
     // 直到找到满足本地性要求的任务或者达到跳过次数上限（requiredSlots*localityWaitFactor）
     localityWaitFactor = 
       conf.getFloat(LOCALITY_WAIT_FACTOR, DEFAULT_LOCALITY_WAIT_FACTOR);
-    if (numMapTasks > 0) { 
+
+    // 对于map task，将其放入nonRunningMapCache，是一个Map<Node,List<TaskInProgress>>，也即对于map task来讲，其将会被分配到其inputsplit所在的Node上。
+    // 在此，Node代表一个datanode或者机架或者数据中心。nonRunningMapCache将在JobTracker向TaskTracker分配map task的时候使用。
+    if (numMapTasks > 0) {
+      // 通过createCache()方法为这些TaskInProgress对象产生一个未执行任务的Map缓存nonRunningMapCache。（具体看该方法的实现）
+      // slave端的TaskTracker向master发送心跳时，就可以直接从这个cache中取任务去执行。
       nonRunningMapCache = createCache(splits, maxLevel);
     }
 
@@ -836,6 +844,7 @@ public class JobInProgress {
       reduces[i] = new TaskInProgress(jobId, jobFile, 
                                       numMapTasks, i, 
                                       jobtracker, conf, this, numSlotsPerReduce);
+      // reduce task放入nonRunningReduces，其将在JobTracker向TaskTracker分配reduce task的时候使用。
       nonRunningReduces.add(reduces[i]);
     }
 
