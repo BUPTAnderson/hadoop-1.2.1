@@ -86,6 +86,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
       new EagerTaskInitializationListener(conf);
   }
 
+  // JobQueueTaskScheduler最重要的方法是assignTasks，他实现了工作调度。具体实现原理参考：http://blog.csdn.net/xhh198781/article/details/7046389
   @Override
   public synchronized List<Task> assignTasks(TaskTracker taskTracker)
       throws IOException {
@@ -106,7 +107,8 @@ class JobQueueTaskScheduler extends TaskScheduler {
 
     //
     // Get map + reduce counts for the current tracker.
-    //
+    // 首先它会检查 TaskTracker 端还可以做多少个 map 和 reduce 任务，将要派发的任务数是否超出这个数，
+    // 是否超出集群的任务平均剩余可负载数。如果都没超出，则为此TaskTracker 分配一个 MapTask 或 ReduceTask 。
     final int trackerMapCapacity = taskTrackerStatus.getMaxMapSlots();
     final int trackerReduceCapacity = taskTrackerStatus.getMaxReduceSlots();
     final int trackerRunningMaps = taskTrackerStatus.countMapTasks();
@@ -117,7 +119,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
 
     //
     // Compute (running + pending) map and reduce task numbers across pool
-    //
+    // 计算剩余的map和reduce的工作量：remaining
     int remainingReduceLoad = 0;
     int remainingMapLoad = 0;
     synchronized (jobQueue) {
@@ -133,6 +135,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
     }
 
     // Compute the 'load factor' for maps and reduces
+    // 计算map和reducede的负载因子 剩余占对应的最大容量比
     double mapLoadFactor = 0.0;
     if (clusterMapCapacity > 0) {
       mapLoadFactor = (double)remainingMapLoad / clusterMapCapacity;
@@ -158,10 +161,12 @@ class JobQueueTaskScheduler extends TaskScheduler {
     // schedule the "highest priority" task i.e. the task from the job 
     // with the highest priority.
     //
-    
+
+    // mapLoadFactor * trackerMapCapacity会使得该节点当前map的容量和集群整体的负载相近
     final int trackerCurrentMapCapacity = 
       Math.min((int)Math.ceil(mapLoadFactor * trackerMapCapacity), 
                               trackerMapCapacity);
+    // 获取当前tasktracker可用的mapslot，该tasktracker超过集群目前的负载水平后就不分配task，否则会有空闲的slot等待分配task
     int availableMapSlots = trackerCurrentMapCapacity - trackerRunningMaps;
     boolean exceededMapPadding = false;
     if (availableMapSlots > 0) {
@@ -202,6 +207,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
           }
           
           // Try to schedule a node-local or rack-local Map task
+          // 产生 Map 任务使用 JobInProgress 的obtainNewMapTask() 方法, 实质上最后调用了 JobInProgress 的 findNewMapTask() 访问nonRunningMapCache 。
           t = 
             job.obtainNewNonLocalMapTask(taskTrackerStatus, numTaskTrackers,
                                    taskTrackerManager.getNumberOfUniqueHosts());
@@ -223,7 +229,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
     //
     // Same thing, but for reduce tasks
     // However we _never_ assign more than 1 reduce task per heartbeat
-    //
+    // 分配完map task，再分配reduce task
     final int trackerCurrentReduceCapacity = 
       Math.min((int)Math.ceil(reduceLoadFactor * trackerReduceCapacity), 
                trackerReduceCapacity);
@@ -240,6 +246,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
             continue;
           }
 
+          // //使用JobInProgress.obtainNewReduceTask() 方法，实质上最后调用了JobInProgress的 findNewReduceTask() 访问 nonRuningReduceCache
           Task t = 
             job.obtainNewReduceTask(taskTrackerStatus, numTaskTrackers, 
                                     taskTrackerManager.getNumberOfUniqueHosts()
