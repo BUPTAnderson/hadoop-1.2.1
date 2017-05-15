@@ -135,7 +135,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
     }
 
     // Compute the 'load factor' for maps and reduces
-    // 计算map和reducede的负载因子 剩余占对应的最大容量比
+    // 计算map和reduce的负载因子 剩余占对应的最大容量比
     double mapLoadFactor = 0.0;
     if (clusterMapCapacity > 0) {
       mapLoadFactor = (double)remainingMapLoad / clusterMapCapacity;
@@ -176,9 +176,11 @@ class JobQueueTaskScheduler extends TaskScheduler {
     
     int numLocalMaps = 0;
     int numNonLocalMaps = 0;
+    // 下面是为每个mapslot选择一个map task
     scheduleMaps:
     for (int i=0; i < availableMapSlots; ++i) {
       synchronized (jobQueue) {
+        // 首先遍历jobQueue中的每个处于非运行状态的JobInProgress
         for (JobInProgress job : jobQueue) {
           if (job.getStatus().getRunState() != JobStatus.RUNNING) {
             continue;
@@ -188,6 +190,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
           
           // Try to schedule a Map task with locality between node-local 
           // and rack-local
+          // 调用JobInProgress的obtainNewNodeOrRackLocalMapTask方法获取基于节点本地或者机架本地的map task，obtainNewNodeOrRackLocalMapTask会通过调用findNewMapTask获取map数组中的索引值
           t = 
             job.obtainNewNodeOrRackLocalMapTask(taskTrackerStatus, 
                 numTaskTrackers, taskTrackerManager.getNumberOfUniqueHosts());
