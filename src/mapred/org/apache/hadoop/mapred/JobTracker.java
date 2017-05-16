@@ -3258,10 +3258,12 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         // 具体看一下getSetupAndCleanupTasks方法的具体实现
         List<Task> tasks = getSetupAndCleanupTasks(taskTrackerStatus);
         if (tasks == null ) {
-          // 由任务调度器选择一个或多个计算型任务，此处是使用TaskScheduler调度任务，一大难点，后期分析。
+          // 由任务调度器选择一个或多个计算型任务，此处是使用TaskScheduler调度任务(默认是JObQueueTaskScheduler)，一大难点，后期分析。
+          // assignTasks方法最后返回分配任务列表assignedTasks。调度器只分配MapTask和ReduceTask。而作业的其它辅助任务都是交由JobTracker来调度的，如JobSetup、JobCleanup、TaskCleanup任务等。
           tasks = taskScheduler.assignTasks(taskTrackers.get(trackerName));
         }
         if (tasks != null) {
+          // 遍历任务列表tasks
           for (Task task : tasks) {
             // 分配的Task加入expireLaunchingTasks，expireLaunchingTaskThread会定期检查expireLaunchingTasks的Task在规定的时间内是否汇报了进度。
             expireLaunchingTasks.addNewTask(task.getTaskID());
@@ -3306,6 +3308,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
                         actions.toArray(new TaskTrackerAction[actions.size()]));
     
     // check if the restart info is req
+    // 如果JobTracker重启了，则需要将需要恢复的Job列表加入response
     if (addRestartInfo) {
       response.setRecoveredJobs(recoveryManager.getJobsToRecover());
     }
@@ -3573,6 +3576,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
         if (initialContact) {
           // if this is lost tracker that came back now, and if it's blacklisted
           // increment the count of blacklisted trackers in the cluster
+          // 如果初次链接JobTracker且包含在黑名单中，则increment the count of blacklisted trackers，然后加入trackerExpiryQueue和hostnameToTaskTracker
           if (isBlacklisted(trackerName)) {
             faultyTrackers.incrBlacklistedTrackers(1);
           }
@@ -3625,6 +3629,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
     }
     
     // add the stray attempts for uninited jobs
+    // trackerToTasksToCleanup中该taskTracker需要清理的Task
     synchronized (trackerToTasksToCleanup) {
       Set<TaskAttemptID> set = trackerToTasksToCleanup.remove(taskTracker);
       if (set != null) {
@@ -3660,6 +3665,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    */
   private List<TaskTrackerAction> getJobsForCleanup(String taskTracker) {
     Set<JobID> jobs = null;
+    // 获取trackerToJobsToCleanup中对应此tasktracker的所有jobs，封装成KillJobAction，加入actions中。
     synchronized (trackerToJobsToCleanup) {
       jobs = trackerToJobsToCleanup.remove(taskTracker);
     }
@@ -3683,6 +3689,7 @@ public class JobTracker implements MRConstants, InterTrackerProtocol,
    */
   private synchronized List<TaskTrackerAction> getTasksToSave(
                                                  TaskTrackerStatus tts) {
+    // 检查tasktracker的所有的task中状态等于TaskStatus.State.COMMIT_PENDING的，封装成CommitTaskAction，加入actions中。表示这个task的输出可以保存。
     List<TaskStatus> taskStatuses = tts.getTaskReports();
     if (taskStatuses != null) {
       List<TaskTrackerAction> saveList = new ArrayList<TaskTrackerAction>();

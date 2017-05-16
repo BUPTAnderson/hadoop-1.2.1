@@ -2089,10 +2089,12 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       localMinSpaceStart = minSpaceStart;
     }
     if (askForNewTask) {
-      // enoughFreeSpace()方法会再次根据localMinSpaceStart判断是否可接收新任务。判断的依据是磁盘剩余空间大于localMinSpaceStart(localMinSpaceStart = minSpaceStart, minSpaceStart实际是配置参数mapred.local.dir.minspacestart的值，默认为0)
+      // enoughFreeSpace()方法会再次根据localMinSpaceStart判断是否可接收新任务。判断的依据是磁盘剩余空间大于localMinSpaceStart
+      // (localMinSpaceStart = minSpaceStart, minSpaceStart实际是配置参数mapred.local.dir.minspacestart的值，默认为0)
       askForNewTask = enoughFreeSpace(localMinSpaceStart);
       long freeDiskSpace = getFreeSpace();
-      // 接下来就是获取TT的一些资源信息，如总虚拟内存，总物理内存，可用的虚拟内存，可用的物理内存，CPU使用情况等。接着将这些值添加到status中去，发送给JT。
+      // 接下来就是获取TT的一些资源信息，如总虚拟内存，总物理内存，可用的虚拟内存，可用的物理内存，CPU使用情况等。这些信息是通过可插拔组件ResourceCalculatorPlugin(抽象类)获取的，可以进入下面各种get方法查看
+      // 接着将这些值添加到status中去，发送给JT。
       long totVmem = getTotalVirtualMemoryOnTT();
       long totPmem = getTotalPhysicalMemoryOnTT();
       // 通过resourceCalculatorPlugin获取可用的虚拟内存大小
