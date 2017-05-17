@@ -86,7 +86,12 @@ class JobQueueTaskScheduler extends TaskScheduler {
       new EagerTaskInitializationListener(conf);
   }
 
-  // JobQueueTaskScheduler最重要的方法是assignTasks，他实现了工作调度。具体实现原理参考：http://blog.csdn.net/xhh198781/article/details/7046389
+  // JobQueueTaskScheduler最重要的方法是assignTasks，他实现了工作调度。具体实现原理参考：http://blog.csdn.net/xhh198781/article/details/7046389, http://www.cnblogs.com/lxf20061900/p/3775963.html
+  // 对于JobQueueTaskScheduler的任务调度实现原则可总结如下：
+  //   1.先调度优先级高的作业，统一优先级的作业则先进先出；
+  //   2.尽量使集群每一个TaskTracker达到负载均衡(这个均衡是task数量上的而不是实际的工作强度)；
+  //   3.尽量分配作业的本地任务给TaskTracker，但不是尽快分配作业的本地任务给TaskTracker，最多分配一个非本地任务给TaskTracker(一是保证任务的并发性，二是避免有些TaskTracker的本地任务被偷走)，最多分配一个reduce任务；
+  //   4.为优先级或者紧急的Task预留一定的slot；
   @Override
   public synchronized List<Task> assignTasks(TaskTracker taskTracker)
       throws IOException {
@@ -191,25 +196,27 @@ class JobQueueTaskScheduler extends TaskScheduler {
           // Try to schedule a Map task with locality between node-local 
           // and rack-local
           // 调用JobInProgress的obtainNewNodeOrRackLocalMapTask方法获取基于节点本地或者机架本地的map task，obtainNewNodeOrRackLocalMapTask会通过调用findNewMapTask获取map数组中的索引值
+          // obtainNewNodeOrRackLocalMapTask要么返回一个MapTask要么返回null
           t = 
             job.obtainNewNodeOrRackLocalMapTask(taskTrackerStatus, 
                 numTaskTrackers, taskTrackerManager.getNumberOfUniqueHosts());
           if (t != null) {
-            assignedTasks.add(t);
+            assignedTasks.add(t); // 加入分配task列表assignedTasks
             ++numLocalMaps;
             
             // Don't assign map tasks to the hilt!
             // Leave some free slots in the cluster for future task-failures,
             // speculative tasks etc. beyond the highest priority job
             if (exceededMapPadding) {
-              break scheduleMaps;
+              break scheduleMaps; // 跳出内层for循环，准备为下一个mapslot找合适的MapTask
             }
            
             // Try all jobs again for the next Map task 
-            break;
+            break;  // 遍历所有的job，直到为该mapslot找到合适的MapTask
           }
           
           // Try to schedule a node-local or rack-local Map task
+          // 如果没有合适的MapTask(node-local或者rack-local),则调用obtainNewNonLocalMapTask获取MapTask
           // 产生 Map 任务使用 JobInProgress 的obtainNewMapTask() 方法, 实质上最后调用了 JobInProgress 的 findNewMapTask() 访问nonRunningMapCache 。
           t = 
             job.obtainNewNonLocalMapTask(taskTrackerStatus, numTaskTrackers,
@@ -232,7 +239,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
     //
     // Same thing, but for reduce tasks
     // However we _never_ assign more than 1 reduce task per heartbeat
-    // 分配完map task，再分配reduce task
+    // 分配完map task，再分配reduce task, 每次心跳分配不超过一个ReduceTask
     final int trackerCurrentReduceCapacity = 
       Math.min((int)Math.ceil(reduceLoadFactor * trackerReduceCapacity), 
                trackerReduceCapacity);
@@ -249,7 +256,7 @@ class JobQueueTaskScheduler extends TaskScheduler {
             continue;
           }
 
-          // //使用JobInProgress.obtainNewReduceTask() 方法，实质上最后调用了JobInProgress的 findNewReduceTask() 访问 nonRuningReduceCache
+          // 使用JobInProgress.obtainNewReduceTask() 方法，实质上最后调用了JobInProgress的 findNewReduceTask() 访问 nonRuningReduceCache
           Task t = 
             job.obtainNewReduceTask(taskTrackerStatus, numTaskTrackers, 
                                     taskTrackerManager.getNumberOfUniqueHosts()
@@ -284,6 +291,8 @@ class JobQueueTaskScheduler extends TaskScheduler {
     return assignedTasks;
   }
 
+  // 在任务调度器JobQueueTaskScheduler的实现中，如果在集群中的TaskTracker节点比较多的情况下，它总是会想办法让若干个TaskTracker节点预留一些空闲的slots(计算能力)，
+  // 以便能够快速的处理优先级比较高的Job的Task或者发生错误的Task，以保证已经被调度的作业的完成。exceededPadding方法判断当前集群是否需要预留一部分map/reduce计算能力来执行那些失败的、紧急的或特殊的任务。
   private boolean exceededPadding(boolean isMapTask, 
                                   ClusterStatus clusterStatus, 
                                   int maxTaskTrackerSlots) { 
