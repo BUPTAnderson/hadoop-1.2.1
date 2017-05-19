@@ -1259,22 +1259,23 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   throws IOException, InterruptedException {
     Task t = tip.getTask();
     JobID jobId = t.getJobID();
+    // 构造rjob， 每个job只会有同一个rjob
     RunningJob rjob = addTaskToJob(jobId, tip);
     InetSocketAddress ttAddr = getTaskTrackerReportAddress();
     try {
       synchronized (rjob) {
-        if (!rjob.localized) {
-          while (rjob.localizing) {
-            rjob.wait();
-          }
-          if (!rjob.localized) {
+        if (!rjob.localized) { // 如果该作业尚未完成本地化工作
+          while (rjob.localizing) { // 另一个任务正在进行作业本地化
+            rjob.wait();    // 等待作业本地化结束
+          } // 释放rjob锁
+          if (!rjob.localized) {    // 没有任务进行作业本地化
             //this thread is localizing the job
-            rjob.localizing = true;
+            rjob.localizing = true; //让当前任务对该作业进行本地化
           }
         }
       }
-      if (!rjob.localized) {
-        Path localJobConfPath = initializeJob(t, rjob, ttAddr);
+      if (!rjob.localized) {    // 运行到这里，说明当前没有任务进行作业本地化
+        Path localJobConfPath = initializeJob(t, rjob, ttAddr); // 当前任务对作业进行作业本地化工作
         JobConf localJobConf = new JobConf(localJobConfPath);
         //to be doubly sure, overwrite the user in the config with the one the TT 
         //thinks it is
@@ -1333,7 +1334,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     final Configuration conf = getJobConf();
 
     // save local copy of JobToken file
-    final String localJobTokenFile = localizeJobTokenFile(t.getUser(), jobId);
+    // localizeJobTokenFile方法将jobToken凭据文件下载到TaskTracker本地，新文件为：${mapred.local.dir}/ttprivate/taskTracker/$user/jobcache/$jobid/jobToken
+      final String localJobTokenFile = localizeJobTokenFile(t.getUser(), jobId);
     synchronized (rjob) {
       rjob.ugi = UserGroupInformation.createRemoteUser(t.getUser());
 
@@ -1350,6 +1352,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     FileSystem userFs = getFS(jobFile, jobId, conf);
 
     // Download the job.xml for this job from the system FS
+    // 将job.xml文件下载到TaskTracker私有文件目录中,新文件为： ${mapred.local.dir}/ttprivate/taskTracker/$user/jobcache/$jobid/job.xml
     final Path localJobFile =
       localizeJobConfFile(new Path(t.getJobFile()), userName, userFs, jobId);
 
@@ -1384,6 +1387,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           // write back the config (this config will have the updates that the
           // distributed cache manager makes as well)
           JobLocalizer.writeLocalJobFile(localJobFile, localJobConf);
+          // 其它初始化工作交给taskController.initializeJob方法处理，该方法出要工作是创建作业相关目录和文件
           taskController.initializeJob(t.getUser(), jobId.toString(), 
               new Path(localJobTokenFile), localJobFile, TaskTracker.this,
               ttAddr);
@@ -2746,12 +2750,12 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * @throws InterruptedException 
    */
   void startNewTask(final TaskInProgress tip) throws InterruptedException {
-    // 创建一个线程
+    // 创建一个线程: TaskTracker采用多线程启动任务，即为每一个任务单独启动一个线程
     Thread launchThread = new Thread(new Runnable() {
       @Override
       public void run() {
         try {
-          // 执行本地化操作
+          // 执行本地化操作（每个作业的第一个任务负责为该作业本地化）
           RunningJob rjob = localizeJob(tip);
           tip.getTask().setJobFile(rjob.getLocalizedJobConf().toString());
           // Localization is done. Neither rjob.jobConf nor rjob.ugi can be null
@@ -3012,6 +3016,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         }
         // 如果是map task创建MapTaskRunner， 如果是reduce task创建ReduceTaskRunner
         setTaskRunner(task.createRunner(TaskTracker.this, this, rjob));
+        // 调用TaskRunner的run方法
         this.runner.start();
         long now = System.currentTimeMillis();
         this.taskStatus.setStartTime(now);

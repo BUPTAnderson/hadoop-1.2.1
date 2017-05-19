@@ -10,7 +10,7 @@
   </property>
   <property>
     <name>hadoop.tmp.dir</name>
-    <value>/home/anderson/hadoop1/dfs/tmp</value>
+    <value>/home/anderson/hadoop121/dfs/tmp</value>
   </property>
   <property>
     <name>fs.checkpoint.period</name>
@@ -18,7 +18,7 @@
   </property>
   <property>
     <name>fs.checkpoint.dir</name>
-    <value>/home/anderson/hadoop1/secondarynamenode</value>
+    <value>/home/anderson/hadoop121/secondarynamenode</value>
   </property>
   <property>
     <name>fs.trash.interval</name>
