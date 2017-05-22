@@ -292,14 +292,15 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     
   volatile boolean shuttingDown = false;
 
-  // 该TT上TaskAttemptID与TIP对应关系
+  // 该TT上TaskAttemptID与TIP对应关系，用来记录该TaskTracker上所有的Task，包括正在运行和已经完成的Task
   Map<TaskAttemptID, TaskInProgress> tasks = new HashMap<TaskAttemptID, TaskInProgress>();
   /**
    * Map from taskId -> TaskInProgress.
    */
-  // 该TT上正在运行的TaskAttemptID与TIP对应关系
+  // 该TT上正在运行的TaskAttemptID与TIP对应关系，白哦是当前TaskTracker上正在运行的Task
   Map<TaskAttemptID, TaskInProgress> runningTasks = null;
   // 该TT上正在运行的作业列表，如果一个作业中的任务在该TT上运行，则把该作业加入该数据结构。
+  // runningJobs中维护了在该TaskTracker中运行的 <JobID -- RunningJob>的关系，而RunningJob中包含了该job在该TaskTracker中运行的Task列表
   Map<JobID, RunningJob> runningJobs = new TreeMap<JobID, RunningJob>();
   // 用来管理Job运行的令牌相关信息。
   private final JobTokenSecretManager jobTokenSecretManager
@@ -313,7 +314,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     return runningJobs.get(jobId);
   }
 
+  // 当前TaskTracker上运行的总的MapTask的数量
   volatile int mapTotal = 0;
+  // 当前TaskTracker上运行的总的ReduceTask的数量
   volatile int reduceTotal = 0;
   boolean justStarted = true;
   boolean justInited = true;
@@ -353,8 +356,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   private JobConf fConf;
   private JobConf originalConf;
   private Localizer localizer;
-  private int maxMapSlots; // TaskTracker上配置的Map slots数目
-  private int maxReduceSlots; // TaskTracker上配置的Reduce slot数目
+  private int maxMapSlots; // TaskTracker上配置的Map slots数目，默认是2
+  private int maxReduceSlots; // TaskTracker上配置的Reduce slot数目,默认是2
   private int taskFailures;
   final long mapRetainSize;
   final long reduceRetainSize;
@@ -628,6 +631,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   
   private RunningJob addTaskToJob(JobID jobId, 
                                   TaskInProgress tip) {
+    // 创建一个RunningJob对象，并加入到TaskTracker维护的runningJobs队列（包含了JobID到RunningJob的映射关系）中，同时将Task对应的TIP对象加入到RunningJob所维护的tasks队列中。
     synchronized (runningJobs) {
       RunningJob rJob = null;
       if (!runningJobs.containsKey(jobId)) {
@@ -1259,7 +1263,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
   throws IOException, InterruptedException {
     Task t = tip.getTask();
     JobID jobId = t.getJobID();
-    // 构造rjob， 每个job只会有同一个rjob
+    // 构造一个RunningJob对象rjob， 每个job在该TaskTracker只会有一个rjob，该rjob会被加入到runningJobs队列中，而rjob中有包含了该job运行在该TaskTracker上的TaskInProgress列表，具体进入该方法
     RunningJob rjob = addTaskToJob(jobId, tip);
     InetSocketAddress ttAddr = getTaskTrackerReportAddress();
     try {
@@ -1276,6 +1280,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
       }
       if (!rjob.localized) {    // 运行到这里，说明当前没有任务进行作业本地化
         Path localJobConfPath = initializeJob(t, rjob, ttAddr); // 当前任务对作业进行作业本地化工作
+        // localJobConfPath示例：${mapred.local.dir}/taskTracker/${user}/jobcache/${jobid}/job.xml
         JobConf localJobConf = new JobConf(localJobConfPath);
         //to be doubly sure, overwrite the user in the config with the one the TT 
         //thinks it is
@@ -1332,6 +1337,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     final Path jobFile = new Path(t.getJobFile());
     final String userName = t.getUser();
     final Configuration conf = getJobConf();
+    // 主要是将Job配置信息从HDFS上下载到TaskTracker所在节点本地，供该Job的一组Task运行共享。
 
     // save local copy of JobToken file
     // localizeJobTokenFile方法将jobToken凭据文件下载到TaskTracker本地，新文件为：${mapred.local.dir}/ttprivate/taskTracker/$user/jobcache/$jobid/jobToken
@@ -1387,7 +1393,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           // write back the config (this config will have the updates that the
           // distributed cache manager makes as well)
           JobLocalizer.writeLocalJobFile(localJobFile, localJobConf);
-          // 其它初始化工作交给taskController.initializeJob方法处理，该方法出要工作是创建作业相关目录和文件
+          // 其它初始化工作交给taskController.initializeJob方法处理，该方法出要工作是创建作业相关目录和文件，初始化Job所包含的相关资源信息，为属于该Job的一组Task所共享。
+          // 这里TaskController使用的是LinuxTaskController实现类，通过调用该方法，实际上购咋了一个Shell命令行，用来在TaskTracker节点上初始化目录和拷贝相关资源，进入该方法
           taskController.initializeJob(t.getUser(), jobId.toString(), 
               new Path(localJobTokenFile), localJobFile, TaskTracker.this,
               ttAddr);
@@ -1481,8 +1488,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
                   localStorage.getDirsString());
       tip.setJobConf(jobConf);
       tip.setUGI(rjob.ugi);
-      // 启动Task
-      tip.launchTask(rjob);
+      tip.launchTask(rjob); // 这里才是启动Task的核心方法
     }
   }
     
@@ -2616,10 +2622,11 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
 
     public void addToTaskQueue(LaunchTaskAction action) {
       synchronized (tasksToLaunch) {
-        // 新建1个TIP，并加入tasksToLaunch列表
+        // 新建1个TIP，并加入tasksToLaunch列表，该TIP是TaskTracker内部类，里面包装了Task，具体看一下registerTask方法。
         TaskInProgress tip = registerTask(action, this);
+        // 根据LaunchTaskAction创建的TaskInProgress结构被加入到队列tasksToLaunch中
         tasksToLaunch.add(tip);
-        // 唤醒所有被tasksToLaunch wait的操作，说明此时有新的任务了
+        // 唤醒所有被tasksToLaunch wait的操作，说明此时有新的任务了，继续执行线程中的run方法
         tasksToLaunch.notifyAll();
       }
     }
@@ -2655,10 +2662,10 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           TaskInProgress tip;
           Task task;
           synchronized (tasksToLaunch) {
-            while (tasksToLaunch.isEmpty()) {
+            while (tasksToLaunch.isEmpty()) { // 队列为空，则没有Task需要启动，等待向队列加入LaunchTaskAction指令及其通知
               tasksToLaunch.wait();
             }
-            //get the TIP
+            //get the TIP 取出队列中TaskInProgress对象
             tip = tasksToLaunch.remove(0);
             task = tip.getTask();
             LOG.info("Trying to launch : " + tip.getTask().getTaskID() + 
@@ -2666,9 +2673,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
           }
           //wait for free slots to run
           // 等待空闲的slot
-          synchronized (numFreeSlots) {
+          synchronized (numFreeSlots) { // 检查当前是否存在空闲的slot，以便运行Task
             boolean canLaunch = true;
-            while (numFreeSlots.get() < task.getNumSlotsRequired()) {
+            while (numFreeSlots.get() < task.getNumSlotsRequired()) { // 如果当前空闲slot小于该Task运行所需的slot数量
               //Make sure that there is no kill task action for this task!
               //We are not locking tip here, because it would reverse the
               //locking order!
@@ -2678,18 +2685,18 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
               // synchronized on numFreeSlots. So, while we are doing the check,
               // if the tip is half way through the kill(), we don't miss
               // notification for the following wait().
-              if (!tip.canBeLaunched()) {
+              if (!tip.canBeLaunched()) { // 如果TIP状态不是下面3种状态：UNASSIGNED、FAILED_UNCLEAN、KILLED_UNCLEAN
                 //got killed externally while still in the launcher queue
                 LOG.info("Not blocking slots for " + task.getTaskID()
                     + " as it got killed externally. Task's state is "
                     + tip.getRunState());
-                canLaunch = false;
+                canLaunch = false;  // 检查TIP状态不能启动Task，但也不能阻塞该方法
                 break;
               }
               LOG.info("TaskLauncher : Waiting for " + task.getNumSlotsRequired() + 
                        " to launch " + task.getTaskID() + ", currently we have " + 
                        numFreeSlots.get() + " free slots");
-              numFreeSlots.wait();
+              numFreeSlots.wait();  // 如果没有空闲slot，则等待
             }
             if (!canLaunch) {
               continue;
@@ -2697,22 +2704,23 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
             LOG.info("In TaskLauncher, current free slots : " + numFreeSlots.get()+
                      " and trying to launch "+tip.getTask().getTaskID() + 
                      " which needs " + task.getNumSlotsRequired() + " slots");
-            numFreeSlots.set(numFreeSlots.get() - task.getNumSlotsRequired());
+            numFreeSlots.set(numFreeSlots.get() - task.getNumSlotsRequired()); // 标记将满足该Task的Slot数已经分配
             assert (numFreeSlots.get() >= 0);
           }
           synchronized (tip) {
             //to make sure that there is no kill task action for this
+            // 到这里已经获取到了满足运行Task要求的空闲slot，但还要检查该TIP状态是否指示为被kill了
             if (!tip.canBeLaunched()) {
               //got killed externally while still in the launcher queue
               LOG.info("Not launching task " + task.getTaskID() + " as it got"
                 + " killed externally. Task's state is " + tip.getRunState());
-              addFreeSlots(task.getNumSlotsRequired());
+              addFreeSlots(task.getNumSlotsRequired()); // 如果Task状态TIP标识不能启动，则释放slot
               continue;
             }
             tip.slotTaken = true;
           }
           //got a free slot. launch the task
-          // 获得了空闲的slot，启动Task
+          // 获得了满足Task启动所需的空闲的slot，开始启动Task，进入startNewTask方法
           startNewTask(tip);
         } catch (InterruptedException e) { 
           return; // ALL DONE
@@ -2730,8 +2738,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
              " task's state:" + t.getState());
     TaskInProgress tip = new TaskInProgress(t, this.fConf, launcher);
     synchronized (this) {
-      tasks.put(t.getTaskID(), tip);
-      runningTasks.put(t.getTaskID(), tip);
+      tasks.put(t.getTaskID(), tip);  // 加入到队列tasks: TaskAttemptID -> TaskInProgress
+      runningTasks.put(t.getTaskID(), tip); // 加入到队列runningTasks: TaskAttemptID -> TaskInProgress
       boolean isMap = t.isMapTask();
       if (isMap) {
         mapTotal++;
@@ -2750,16 +2758,18 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
    * @throws InterruptedException 
    */
   void startNewTask(final TaskInProgress tip) throws InterruptedException {
-    // 创建一个线程: TaskTracker采用多线程启动任务，即为每一个任务单独启动一个线程
+    // 创建一个线程: TaskTracker采用多线程启动任务，即为每一个任务单独启动一个线程异步的执行
     Thread launchThread = new Thread(new Runnable() {
       @Override
       public void run() {
         try {
-          // 执行本地化操作（每个作业的第一个任务负责为该作业本地化）
+          // 如果在一个TaskTracker节点上运行的多个Task都属于同一个Job（一个TaskTracker上运行的Task按照Job来分组，每一组Task都属于同一个Job），那么第一次初始化时，还没有建立一个Task到Job的映射关系，
+          // 也就是说，在TaskTracker端也要维护Job的状态，以及属于该Job的所有Task的状态信息。比如，如果用户提交了一个kill掉Job的请求，那么正在运行的属于该Job的所有Task都应该被kill掉。
+          // 执行本地化操作（每个作业的第一个任务负责为该作业本地化），进入该方法
           RunningJob rjob = localizeJob(tip);
           tip.getTask().setJobFile(rjob.getLocalizedJobConf().toString());
           // Localization is done. Neither rjob.jobConf nor rjob.ugi can be null
-          // 启动Task
+          // 调用launchTaskForJob()方法进入启动Task的处理流程
           launchTaskForJob(tip, new JobConf(rjob.getJobConf()), rjob); 
         } catch (Throwable e) {
           String msg = ("Error initializing " + tip.getTask().getTaskID() + 
@@ -2944,6 +2954,8 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
         
     void localizeTask(Task task) throws IOException{
 
+      // 在这里，Task可能是MapTask，也可能是ReduceTask，所以调用task.localizeConfiguration()的初始化逻辑稍微有些不同，具体可以查看MapTask和ReduceTask类实现。另外，对于不同类型的Task，
+      // 也会创建不同类型的TaskRunner线程，分别对应于MapTaskRunner和ReduceTaskRunner，实际所有Task启动的相关逻辑都是在这2个TaskRunner中实现的。
       // Do the task-type specific localization
 //TODO: are these calls really required
       task.localizeConfiguration(localJobConf);
@@ -3007,16 +3019,19 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
      * Kick off the task execution
      */
     public synchronized void launchTask(RunningJob rjob) throws IOException {
+      // 通过下面的判断可以看出，一个Task只有具备下面3个状态之一：UNASSIGNED、FAILED_UNCLEAN、KILLED_UNCLEAN，才能够被启动。
       if (this.taskStatus.getRunState() == TaskStatus.State.UNASSIGNED ||
           this.taskStatus.getRunState() == TaskStatus.State.FAILED_UNCLEAN ||
           this.taskStatus.getRunState() == TaskStatus.State.KILLED_UNCLEAN) {
+        // 首先要进行Task的初始化，调用localizeTask()方法
         localizeTask(task);
+        // 如果状态UNASSIGNED，则初始化完成后，将当前状态改为RUNNING
         if (this.taskStatus.getRunState() == TaskStatus.State.UNASSIGNED) {
           this.taskStatus.setRunState(TaskStatus.State.RUNNING);
         }
         // 如果是map task创建MapTaskRunner， 如果是reduce task创建ReduceTaskRunner
         setTaskRunner(task.createRunner(TaskTracker.this, this, rjob));
-        // 调用TaskRunner的run方法
+        // 启动一个TaskRunner线程，调用TaskRunner的run方法
         this.runner.start();
         long now = System.currentTimeMillis();
         this.taskStatus.setStartTime(now);
@@ -4577,6 +4592,7 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
     }
 
     // start the taskMemoryManager thread only if enabled
+    // 启动TaskMemoryManagerThread线程，该线程每隔一段时间(由参数mapred.tasktracker.taskmemorymanager.monitoring-interval指定，默认是5s)扫描所有正在运行的任务
     setTaskMemoryManagerEnabledFlag();
     if (isTaskMemoryManagerEnabled()) {
       taskMemoryManager = new TaskMemoryManagerThread(this);
