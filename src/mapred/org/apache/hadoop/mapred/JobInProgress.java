@@ -17,7 +17,33 @@
  */
 package org.apache.hadoop.mapred;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocalFileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapred.CleanupQueue.PathDeletionContext;
+import org.apache.hadoop.mapred.Counters.CountersExceededException;
+import org.apache.hadoop.mapred.JobHistory.Values;
+import org.apache.hadoop.mapreduce.JobSubmissionFiles;
+import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.security.token.DelegationTokenRenewal;
+import org.apache.hadoop.mapreduce.server.jobtracker.TaskTracker;
+import org.apache.hadoop.mapreduce.split.JobSplit;
+import org.apache.hadoop.mapreduce.split.JobSplit.TaskSplitMetaInfo;
+import org.apache.hadoop.mapreduce.split.SplitMetaInfoReader;
+import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.net.NetworkTopology;
+import org.apache.hadoop.net.Node;
+import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
+import org.apache.hadoop.util.StringUtils;
+
 import java.io.IOException;
+import java.net.UnknownHostException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,33 +62,6 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.Vector;
-import java.net.UnknownHostException;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocalFileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.mapred.CleanupQueue.PathDeletionContext;
-import org.apache.hadoop.mapred.Counters.CountersExceededException;
-import org.apache.hadoop.mapred.JobHistory.Values;
-import org.apache.hadoop.mapreduce.JobContext;
-import org.apache.hadoop.mapreduce.JobSubmissionFiles;
-import org.apache.hadoop.mapreduce.TaskType;
-import org.apache.hadoop.mapreduce.security.token.DelegationTokenRenewal;
-import org.apache.hadoop.mapreduce.server.jobtracker.TaskTracker;
-import org.apache.hadoop.mapreduce.split.JobSplit;
-import org.apache.hadoop.mapreduce.split.SplitMetaInfoReader;
-import org.apache.hadoop.mapreduce.split.JobSplit.TaskSplitMetaInfo;
-import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.net.NetworkTopology;
-import org.apache.hadoop.net.Node;
-import org.apache.hadoop.security.Credentials;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.TokenIdentifier;
-import org.apache.hadoop.util.StringUtils;
 
 /*************************************************************
  * JobInProgress maintains all the info for keeping
@@ -143,7 +142,7 @@ public class JobInProgress {
 
   // NetworkTopology Node to the set of TIPs
   // node上没有运行的map Task列表信息
-  // 在调度Task之前，需要计算某个Task将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的Task的列表信息。
+  // 在调度Task之前，需要计算某个Task将要运行在哪些Node上，这里维护了某个Node所对应的没有运行的Task的列表信息。通过作业的InputFormat可直接获取。
   Map<Node, List<TaskInProgress>> nonRunningMapCache;
   
   // Map of NetworkTopology Node to set of running TIPs
@@ -1464,13 +1463,14 @@ public class JobInProgress {
       catch (IOException ioe) {ioe.printStackTrace();}
       return null;
     }
-
+    // 实际是通过findNewMapTask获取map数组中的索引值, 具体选择逻辑看方法实现
     int target = findNewMapTask(tts, clusterSize, numUniqueHosts, maxCacheLevel, 
                                 status.mapProgress());
     if (target == -1) {
       return null;
     }
 
+    // 通过索引值获取map task
     Task result = maps[target].getTaskToRun(tts.getTrackerName());
     if (result != null) {
       addRunningTaskToTIP(maps[target], result.getTaskID(), tts, true);
@@ -1756,6 +1756,7 @@ public class JobInProgress {
      * size is divided by 2 since the resource estimator returns the amount of disk 
      * space the that the reduce will use (which is 2 times the input, space for merge + reduce
      * input). **/
+    // 如果预估出reduce输入过大，会fail掉job
     long estimatedReduceInputSize = resourceEstimator.getEstimatedReduceInputSize()/2;
     if (((estimatedReduceInputSize) > 
       reduce_input_limit) && (reduce_input_limit > 0L)) {
@@ -1772,10 +1773,11 @@ public class JobInProgress {
     
     // Ensure we have sufficient map outputs ready to shuffle before 
     // scheduling reduces
+    // 判断Job的map是否运行到该调用reduce的比例，若不到就返回null
     if (!scheduleReduces()) {
       return null;
     }
-
+    // 调用findNewReduceTask获取reduce的索引值
     int  target = findNewReduceTask(tts, clusterSize, numUniqueHosts, 
                                     status.reduceProgress());
     if (target == -1) {
@@ -2320,6 +2322,7 @@ public class JobInProgress {
       // (3) when the TIP is non-schedulable (running, killed, complete)
       if (tip.isRunnable() && !tip.isRunning()) {
         // check if the tip has failed on this host
+        // 该taskTracker没运行过该TaskInProgress或者该TaskInProgress失败过的节点数不低于运行taskTracker的主机数，这两个满足一个即可
         if (!tip.hasFailedOnMachine(ttStatus.getHost()) || 
              tip.getNumberOfFailedMachines() >= numUniqueHosts) {
           // check if the tip has failed on all the nodes
@@ -2434,7 +2437,7 @@ public class JobInProgress {
     
     
     // When scheduling a map task:
-    //  0) Schedule a failed task without considering locality
+    //  0) Schedule a failed task without considering locality, 首先从失败task选取合适的task直接返回
     //  1) Schedule non-running tasks
     //  2) Schedule speculative tasks
     //  3) Schedule tasks with no location information
@@ -2448,6 +2451,7 @@ public class JobInProgress {
 
     // 0) Schedule the task with the most failures, unless failure was on this
     //    machine
+    // 先从failedMaps获取合适的失败map并返回（从失败的task中寻找合适的task并不考虑数据的本地性）
     tip = findTaskFromList(failedMaps, tts, numUniqueHosts, false);
     if (tip != null) {
       // Add to the running list
@@ -2455,7 +2459,7 @@ public class JobInProgress {
       LOG.info("Choosing a failed task " + tip.getTIPId());
       return tip.getIdWithinJob();
     }
-
+    // 如果没有合适的失败task，则获取当前taskTracker对应的Node，然后从近到远一层一层的寻找，知道找到合适的TaskInProgress
     Node node = jobtracker.getNode(tts.getHost());
     
     //
@@ -2476,6 +2480,7 @@ public class JobInProgress {
       int maxLevelToSchedule = Math.min(maxCacheLevel, maxLevel);
       for (level = 0;level < maxLevelToSchedule; ++level) {
         List <TaskInProgress> cacheForLevel = nonRunningMapCache.get(key);
+        // 如果列表不为空则调用findTaskFromList方法从这个列表中获取合适的TaskInProgress
         if (cacheForLevel != null) {
           tip = findTaskFromList(cacheForLevel, tts, 
               numUniqueHosts,level == 0);
@@ -2485,16 +2490,21 @@ public class JobInProgress {
 
             // remove the cache if its empty
             if (cacheForLevel.size() == 0) {
+              // 检查列表是否为空，为空则从nonRunningMapCache清除这个Node的所有信息
               nonRunningMapCache.remove(key);
             }
 
             return tip.getIdWithinJob();
           }
         }
+        // 获取父节点
         key = key.getParent();
       }
       
       // Check if we need to only schedule a local task (node-local/rack-local)
+      // 如果遍历拓扑最大层数还是没有合适的task，则返回给obtainNewNodeOrRackLocalMapTask一个值-1，这里说明如果方法findNewMapTask的参数maxCacheLevel大于0则是获取(node-local或者rack-local，
+      // 后面的其他情况不予考虑)，其实就是优先考虑tasktracker对应Node有分片信息的本地的map(是node-local)，然后再考虑父Node（同一个机架rack-local）的，再其他的(跨机架off-switch，
+      // 这点得看设置的网络深度，大于2才会考虑)，这样由近及远的做法会使得减少数据的拷贝距离，降低网络开销。
       if (level == maxCacheLevel) {
         return -1;
       }
@@ -2507,12 +2517,15 @@ public class JobInProgress {
     //       info not obtained yet)
 
     // collection of node at max level in the cache structure
+    // 然后获取cache大网络深度的Node
     Collection<Node> nodesAtMaxLevel = jobtracker.getNodesAtMaxLevel();
 
     // get the node parent at max level
+    // 获取该taskTracker对应Node的最深父Node
     Node nodeParentAtMaxLevel = 
       (node == null) ? null : JobTracker.getParentNode(node, maxLevel - 1);
-    
+
+    // 下面和上边类似，只不过这次找的跨机架(或者更高一级，主要看设置的网络深度)。选择跨机架的task，scheduleMap(tip)；返回给obtainNewNodeOrRackLocalMapTask这个maptask在map数组中的索引值。
     for (Node parent : nodesAtMaxLevel) {
 
       // skip the parent that has already been scanned
@@ -2538,6 +2551,7 @@ public class JobInProgress {
     }
 
     // 3. Search non-local tips for a new task
+    // 然后是查找nonLocalMaps中有无合适的task，这种任务没有输入数据，不需考虑本地性。scheduleMap(tip)；返回给obtainNewNodeOrRackLocalMapTask这个maptask在map数组中的索引值。
     tip = findTaskFromList(nonLocalMaps, tts, numUniqueHosts, false);
     if (tip != null) {
       // Add to the running list
@@ -2549,7 +2563,8 @@ public class JobInProgress {
 
     //
     // 2) Running TIP :
-    // 
+    // 如果有“拖后腿”的task（hasSpeculativeMaps==true），遍历runningMapCache，异常从node-local、rack-local、off-switch选择合适的“拖后腿”task，返回给obtainNewNodeOrRackLocalMapTask
+    // 这个maptask在map数组中的索引值，这不需要scheduleMap(tip)，很明显已经在runningMapCache中了。
  
     if (hasSpeculativeMaps) {
       long currentTime = jobtracker.getClock().getTime();
@@ -2598,6 +2613,7 @@ public class JobInProgress {
       }
 
       // 3. Check non-local tips for speculation
+      // 从nonLocalRunningMaps中查找“拖后腿”的task，这是计算密集型任务在拖后腿，返回给obtainNewNodeOrRackLocalMapTask这个maptask在map数组中的索引值。
       tip = findSpeculativeTask(nonLocalRunningMaps, tts, avgProgress, 
                                 currentTime, false);
       if (tip != null) {
@@ -2606,7 +2622,8 @@ public class JobInProgress {
         return tip.getIdWithinJob();
       }
     }
-    
+
+    // 再找不到返回-1.
     return -1;
   }
 
@@ -2622,6 +2639,7 @@ public class JobInProgress {
                                              int clusterSize,
                                              int numUniqueHosts,
                                              double avgProgress) {
+    // 先判断该job是否有reduce，没有就返回-1
     if (numReduceTasks == 0) {
       if(LOG.isDebugEnabled()) {
         LOG.debug("No reduces to schedule for " + profile.getJobID());
@@ -2635,12 +2653,14 @@ public class JobInProgress {
     // Update the last-known clusterSize
     this.clusterSize = clusterSize;
 
+    // 检查该taskTracker是否可以运行reduce任务
     if (!shouldRunOnTaskTracker(taskTracker)) {
       return -1;
     }
 
     // 1. check for a never-executed reduce tip
     // reducers don't have a cache and so pass -1 to explicitly call that out
+    // 调用方法findTaskFromList从nonRunningReduces中选择合适的TaskInProgress，放入runningReduces中，直接返回给obtainNewReduceTask对应的索引
     tip = findTaskFromList(nonRunningReduces, tts, numUniqueHosts, false);
     if (tip != null) {
       scheduleReduce(tip);
@@ -2648,6 +2668,7 @@ public class JobInProgress {
     }
 
     // 2. check for a reduce tip to be speculated
+    // 如果没有合适的就从“拖后腿”的runningReduces中通过findSpeculativeTask方法找出拖后退的reduce，放入runningReduces中，直接返回给obtainNewReduceTask对应的索引
     if (hasSpeculativeReduces) {
       tip = findSpeculativeTask(runningReduces, tts, avgProgress, 
                                 jobtracker.getClock().getTime(), false);
@@ -2657,6 +2678,7 @@ public class JobInProgress {
       }
     }
 
+    // 再找不到就直接返回给obtainNewReduceTask方法-1
     return -1;
   }
   
@@ -3021,7 +3043,7 @@ public class JobInProgress {
       clearUncleanTasks();
       //
       // kill all TIPs.
-      //
+      // 杀死该作业所有的job-setup task, map task和reduce task（注意：job-cleanup task 保留）
       for (int i = 0; i < setup.length; i++) {
         setup[i].kill();
       }
@@ -3071,6 +3093,7 @@ public class JobInProgress {
   public void kill() {
     boolean killNow = false;
     synchronized(jobInitKillStatus) {
+      // 将jobKilled变量置为true
       jobInitKillStatus.killed = true;
       //if not in middle of init, terminate it now
       if(!jobInitKillStatus.initStarted || jobInitKillStatus.initDone) {
