@@ -212,20 +212,25 @@ abstract class TaskRunner extends Thread {
       }
       
       // Accumulates class paths for child.
+      // 设置环境变量
       List<String> classPaths = getClassPaths(conf, workDir,
                                               taskDistributedCacheManager);
 
       long logSize = TaskLog.getTaskLogLength(conf);
       
       //  Build exec child JVM args.
+      // 构建vargs：设置启动Child VM的配置，读取mapred-site.xml配置文件中mapred.map.child.java.opts和mapred.reduce.child.java.opts的配置内容，
+      // 最终会使用org.apache.hadoop.mapred.Child创建一个JVM实例来启动Task
       Vector<String> vargs = getVMArgs(taskid, workDir, classPaths, logSize);
       
       tracker.addToMemoryManager(t.getTaskID(), t.isMapTask(), conf);
 
       // set memory limit using ulimit if feasible and necessary ...
+      // 设置jvm启动命令
       String setup = getVMSetupCmd();
       // Set up the redirection of the task's stdout and stderr streams
       File[] logFiles = prepareLogFiles(taskid, t.isTaskCleanupTask());
+      // 设置标准输出流和标准错误输出流
       File stdout = logFiles[0];
       File stderr = logFiles[1];
       tracker.getTaskTrackerInstrumentation().reportTaskLaunch(taskid, stdout,
@@ -248,7 +253,7 @@ abstract class TaskRunner extends Thread {
       }
       setupCmds.add(setup);
 
-      // 通过jvmManager来为每个Task分配一个Java虚拟机环境让其执行，避免任务之间的干扰
+      // 通过jvmManager来为每个Task分配一个Java虚拟机环境让其执行，避免任务之间的干扰，调用launchJvmAndWait()方法，创建Child VM实例
       launchJvmAndWait(setupCmds, vargs, stdout, stderr, logSize, workDir);
       tracker.getTaskTrackerInstrumentation().reportTaskEnd(t.getTaskID());
       if (exitCodeSet) {
@@ -290,7 +295,8 @@ abstract class TaskRunner extends Thread {
   void launchJvmAndWait(List <String> setup, Vector<String> vargs, File stdout,
       File stderr, long logSize, File workDir)
       throws InterruptedException, IOException {
-    // launchJvm方法会启动Task JVM运行Task
+    // launchJvm方法会启动Task JVM运行Task, jvmManager使用mapJvmManager和reduceJvmManager单独管理两种类型任务对应的JVM
+    // 每个JVM只能同时运行一个任务，每个JVM可重复使用以减少启动开销（重复次数可通过参数: mapred.job.reuse.jvm.num.tasks指定），但某个JVM只限于同一个作业的同类型任务使用。
     jvmManager.launchJvm(this, jvmManager.constructJvmEnv(setup, vargs, stdout,
         stderr, logSize, workDir, conf));
     synchronized (lock) {
