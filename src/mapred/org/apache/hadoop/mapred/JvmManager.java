@@ -18,6 +18,15 @@
 
 package org.apache.hadoop.mapred;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.mapred.TaskTracker.TaskInProgress;
+import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.server.tasktracker.JVMInfo;
+import org.apache.hadoop.mapreduce.server.tasktracker.userlogs.JvmFinishedEvent;
+import org.apache.hadoop.util.ProcessTree.Signal;
+import org.apache.hadoop.util.Shell.ShellCommandExecutor;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -27,19 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Vector;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.mapred.CleanupQueue.PathDeletionContext;
-import org.apache.hadoop.mapred.TaskTracker.TaskInProgress;
-import org.apache.hadoop.mapreduce.TaskType;
-import org.apache.hadoop.mapreduce.server.tasktracker.JVMInfo;
-import org.apache.hadoop.mapreduce.server.tasktracker.userlogs.JvmFinishedEvent;
-import org.apache.hadoop.util.ProcessTree;
-import org.apache.hadoop.util.ProcessTree.Signal;
-import org.apache.hadoop.util.Shell.ShellCommandExecutor;
 
 class JvmManager {
 
@@ -57,6 +53,7 @@ class JvmManager {
   }
   
   public JvmManager(TaskTracker tracker) {
+    // 一个JvmManager对应2个JvmManagerForType，分别负责管理MapTask和ReduceTask启动对应的Child VM等数据
     mapJvmManager = new JvmManagerForType(tracker.getMaxCurrentMapTasks(), 
         true, tracker);
     reduceJvmManager = new JvmManagerForType(tracker.getMaxCurrentReduceTasks(),
@@ -121,6 +118,7 @@ class JvmManager {
 
   public void launchJvm(TaskRunner t, JvmEnv env
                         ) throws IOException, InterruptedException {
+    // 根据Task类型，选择调用mapJvmManager或reduceJvmManager的reapJvm()方法
     if (t.getTask().isMapTask()) {
       mapJvmManager.reapJvm(t, env);
     } else {
@@ -224,11 +222,12 @@ class JvmManager {
                                      DEFAULT_SLEEPTIME_BEFORE_SIGKILL);
     }
 
+    // 把需要启动的Task与JvmRunner建立映射关系，更新相应的内存数据结构（队列）
     synchronized public void setRunningTaskForJvm(JVMId jvmId, 
         TaskRunner t) {
       jvmToRunningTask.put(jvmId, t);
       runningTaskToJvm.put(t,jvmId);
-      jvmIdToRunner.get(jvmId).setBusy(true);
+      jvmIdToRunner.get(jvmId).setBusy(true); // 设置当前JvmRunner被占用，不允许释放该资源
     }
     
     synchronized public boolean validateTipToJvm(TaskInProgress tip, JVMId jvmId) {
@@ -324,11 +323,13 @@ class JvmManager {
     }
     private synchronized void reapJvm( 
         TaskRunner t, JvmEnv env) throws IOException, InterruptedException {
+      // 检查当前准备启动的Task是否已经被kill掉，如果是则直接返回
       if (t.getTaskInProgress().wasKilled()) {
         //the task was killed in-flight
         //no need to do the rest of the operations
         return;
       }
+      // 可否启动新的jvm，先设置为false
       boolean spawnNewJvm = false;
       JobID jobId = t.getTask().getJobID();
       //Check whether there is a free slot to start a new JVM.
@@ -340,8 +341,10 @@ class JvmManager {
       // (the order of return is in the order above)
       int numJvmsSpawned = jvmIdToRunner.size();
       JvmRunner runnerToKill = null;
-      if (numJvmsSpawned >= maxJvms) {
+      // 已启动jvm数目大于等于上限数目(maxJvms值为TaskTracker的maxMapSlots值(mapJvmManager)或者maxReduceSlots数目(reduceJvmManager))
+      if (numJvmsSpawned >= maxJvms) {  // 检查当前TaskTracker上运行的某类Task对应的JVM实例数是否大于全局设置允许的最大slot数
         //go through the list of JVMs for all jobs.
+        // 下面是遍历当前TaskTracker所有已经启动的JVM <JVMId, JvmRunner> jvmIdToRunner队列(所有的Map Task或所有的Reduce Task)，检查每个JvmRunner的状态
         Iterator<Map.Entry<JVMId, JvmRunner>> jvmIter = 
           jvmIdToRunner.entrySet().iterator();
         
@@ -349,18 +352,23 @@ class JvmManager {
           JvmRunner jvmRunner = jvmIter.next().getValue();
           JobID jId = jvmRunner.jvmId.getJobId();
           //look for a free JVM for this job; if one exists then just break
+          // 找出满足如下条件的JVM：与将要启动的任务同属一个作业;当前状态为空闲;复用次数未超过上限数目
+          // 如果找到符合上述条件的jvm，则可以继续复用而无须启动新的JVM
           if (jId.equals(jobId) && !jvmRunner.isBusy() && !jvmRunner.ranAll()){
-            setRunningTaskForJvm(jvmRunner.jvmId, t); //reserve the JVM
+            setRunningTaskForJvm(jvmRunner.jvmId, t); //reserve the JVM 预留该JVM以重用，进入该方法，关键是设置jvmToRunningTask队列，运行Task会从该队列中取出
             LOG.info("No new JVM spawned for jobId/taskid: " + 
                      jobId+"/"+t.getTask().getTaskID() +
                      ". Attempting to reuse: " + jvmRunner.jvmId);
             return;
           }
-          //Cases when a JVM is killed: 
+          // 如果满足如下两个条件，则直接将jvm杀掉，并启动一个新的jvm
+          //Cases when a JVM is killed:
+          // (1) 复用次数已达到上限数目且与新任务同属一个作业
           // (1) the JVM under consideration belongs to the same job 
           //     (passed in the argument). In this case, kill only when
           //     the JVM ran all the tasks it was scheduled to run (in terms
           //     of count).
+          // (2) 当前处于空闲状态但是与新任务不属于同一个作业
           // (2) the JVM under consideration belongs to a different job and is
           //     currently not busy
           //But in both the above cases, we see if we can assign the current
@@ -378,8 +386,9 @@ class JvmManager {
       if (spawnNewJvm) {
         if (runnerToKill != null) {
           LOG.info("Killing JVM: " + runnerToKill.jvmId);
-          killJvmRunner(runnerToKill);
+          killJvmRunner(runnerToKill);  // kill掉该JvmRunner
         }
+        // 启动新的jvm，加入到jvmIdToRunner中，进入该方法
         spawnNewJvm(jobId, env, t);
         return;
       }
@@ -418,6 +427,7 @@ class JvmManager {
 
     private void spawnNewJvm(JobID jobId, JvmEnv env,  
         TaskRunner t) {
+      // 启动JVM是由JvmRunner线程完成的
       JvmRunner jvmRunner = new JvmRunner(env, jobId, t.getTask());
       jvmIdToRunner.put(jvmRunner.jvmId, jvmRunner);
       //spawn the JVM in a new thread. Note that there will be very little
@@ -428,8 +438,9 @@ class JvmManager {
       //tasks. Doing it this way also keeps code simple.
       jvmRunner.setDaemon(true);
       jvmRunner.setName("JVM Runner " + jvmRunner.jvmId + " spawned.");
-      setRunningTaskForJvm(jvmRunner.jvmId, t);
+      setRunningTaskForJvm(jvmRunner.jvmId, t); // 调用setRunningTaskForJvm()方法，关键是设置jvmToRunningTask队列，运行Task会从该队列中取出
       LOG.info(jvmRunner.getName());
+      // 启动jvm，用来启动Child VM，查看jvmRunner的run方法
       jvmRunner.start();
     }
     synchronized private void updateOnJvmExit(JVMId jvmId, 
@@ -464,7 +475,9 @@ class JvmManager {
 
       public JvmRunner(JvmEnv env, JobID jobId, Task firstTask) {
         this.env = env;
+        // jvmId.toString()格式：它是某个作业ID（将其ID标识字符串"job"变为"jvm"）,任务类型和一个随机整型拼接而成的，比如: jvm_201709031105_0010_m_482270223
         this.jvmId = new JVMId(jobId, isMap, rand.nextInt());
+        // 每个jvm可复用次数，由参数：mapred.job.reuse.jvm.num.tasks指定，默认值为1
         this.numTasksToRun = env.conf.getNumTasksToExecutePerJvm();
         this.firstTask = firstTask;
         LOG.info("In JvmRunner constructed JVM ID: " + jvmId);
@@ -473,7 +486,7 @@ class JvmManager {
       @Override
       public void run() {
         try {
-          runChild(env);
+          runChild(env);  // 直接调用了runChild()方法
         } catch (InterruptedException ie) {
           return;
         } catch (IOException e) {
@@ -490,6 +503,7 @@ class JvmManager {
         int exitCode = 0;
         try {
           env.vargs.add(Integer.toString(jvmId.getId()));
+          // 从队列jvmToRunningTask中取出TaskRunner
           TaskRunner runner = jvmToRunningTask.get(jvmId);
           if (runner != null) {
             Task task = runner.getTask();
@@ -498,7 +512,8 @@ class JvmManager {
             TaskAttemptID taskAttemptId = task.getTaskID();
             String taskAttemptIdStr = task.isTaskCleanupTask() ? 
                 (taskAttemptId.toString() + TaskTracker.TASK_CLEANUP_SUFFIX) :
-                  taskAttemptId.toString(); 
+                  taskAttemptId.toString();
+                // 真正的执行逻辑，调用TaskController中的launchTask方法,默认是DefaultTaskController, 这里是LinuxTaskController,进入launchTask方法
                 exitCode = tracker.getTaskController().launchTask(user,
                     jvmId.jobId.toString(), taskAttemptIdStr, env.setup,
                     env.vargs, env.workDir, env.stdout.toString(),
@@ -510,11 +525,11 @@ class JvmManager {
         } finally { // handle the exit code
           // although the process has exited before we get here,
           // make sure the entire process group has also been killed.
-          kill();
+          kill(); // Task运行完成，kill掉运行Task的Child VM实例
           updateOnJvmExit(jvmId, exitCode);
           LOG.info("JVM : " + jvmId + " exited with exit code " + exitCode
               + ". Number of tasks it ran: " + numTasksRan);
-          deleteWorkDir(tracker, firstTask);
+          deleteWorkDir(tracker, firstTask);  // 清理临时目录
         }
       }
 

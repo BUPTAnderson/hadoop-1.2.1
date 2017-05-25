@@ -162,6 +162,9 @@ class LinuxTaskController extends TaskController {
                     jobid,
                     credentials.toUri().getPath().toString(),
                     jobConf.toUri().getPath().toString()));
+    // command 示例如下：
+    // /usr/local/java/bin/java -classpath .:/usr/local/java/lib/*.jar;/usr/local/java/jre/lib/*.jar -Dhadoop.log.dir=/tmp/hadoop/logs -Dhadoop.root.logger=INFO,console
+    // -Djava.library.path= org.apache.hadoop.mapred.JobLocalizer shirdrn job_200912121733_0002
     File jvm =                                  // use same jvm as parent
       new File(new File(System.getProperty("java.home"), "bin"), "java");
     command.add(jvm.toString());
@@ -178,6 +181,8 @@ class LinuxTaskController extends TaskController {
     command.add(ttAddr.getHostName());
     command.add(Integer.toString(ttAddr.getPort()));
     String[] commandArray = command.toArray(new String[0]);
+    // 通过工具ShellCommandExecutor来执行上述命令行，启动一个单独的JVM实例，完成Job资源初始化，完成即退出。
+    // 通过上述示例命令行可以看到，主要的初始化工作都在JobLocalizer中完成的，需要传入2个参数：用户、jobid
     ShellCommandExecutor shExec = new ShellCommandExecutor(commandArray);
     if (LOG.isDebugEnabled()) {
       LOG.debug("initializeJob: " + Arrays.toString(commandArray));
@@ -216,9 +221,12 @@ class LinuxTaskController extends TaskController {
 
       // write the command to a file in the
       // task specific cache directory
+      // 创建脚本文件
       Path p = new Path(allocator.getLocalPathForWrite(
           TaskTracker.getPrivateDirTaskScriptLocation(user, jobId, attemptId),
           getConf()), COMMAND_FILE);
+      // 将上述命令写入脚本文件taskjvm.sh
+      // 脚本文件绝对路径示例：/tmp/mapred/local/ttprivate/taskTracker/shirdrn/jobcache/job_200912121733_0002/attempt_200912121733_0002_m_000005_0/taskjvm.sh
       String commandFile = writeCommand(cmdLine, rawFs, p); 
 
       String[] command = 
@@ -230,12 +238,23 @@ class LinuxTaskController extends TaskController {
           attemptId,
           currentWorkDirectory.toString(),
           commandFile};
+      // 使用ShellCommandExecutor工具执行的命令行，类似如下这样：
+      // /usr/local/hadoop/bin/task-controller shirdrn /tmp/mapred/local 1 job_200912121733_0002 attempt_200912121733_0002_m_000005_0
+      // /tmp/mapred/local/ttprivate/taskTracker/shirdrn/jobcache/job_200912121733_0002/attempt_200912121733_0002_m_000005_0/taskjvm.sh
       shExec = new ShellCommandExecutor(command);
 
       if (LOG.isDebugEnabled()) {
         LOG.debug("launchTask: " + Arrays.toString(command));
       }
-      shExec.execute();
+      // 执行脚本，执行脚本中实际又是调用的org.apache.hadoop.mapred.Child类运行任务的
+      // 在taskjvm.sh脚本中的内容，才是真正启动Child VM的命令行，示例如下所示：
+      // /usr/local/bin/java -Xmx 512M -verbose:gc -Xloggc:/tmp/attempt_200912121733_0002_m_000005_0.gc
+      // -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.library.path=
+      // -Djava.io.tmpdir= -classpath .:/usr/local/java/lib/*.jar:/usr/local/java/jre/lib/*.jar -Dlog4j.configuration=task-log4j.properties
+      // -Dhadoop.log.dir=/tmp/hadoop/logs -Dhadoop.root.logger=INFO,TLA -Dhadoop.tasklog.taskid=attempt_200912121733_0002_m_000005_0
+      // -Dhadoop.tasklog.iscleanup=false -Dhadoop.tasklog.totalLogFileSize= org.apache.hadoop.mapred.Child 127.0.0.1 0 attempt_200912121733_0002_m_000005_0
+      // /tmp/hadoop/logs/userlogs/job_200912121733_0002/attempt_200912121733_0002_m_000005_0/ 2134
+      shExec.execute(); // 至此，一个Task通过Child VM的加载已经启动，就可以运行一个Task了
     } catch (Exception e) {
       if (shExec == null) {
         return -1;
