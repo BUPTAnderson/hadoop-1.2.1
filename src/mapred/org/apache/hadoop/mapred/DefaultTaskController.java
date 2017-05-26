@@ -18,26 +18,25 @@
 
 package org.apache.hadoop.mapred;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.util.List;
-
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.LocalDirAllocator;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapred.TaskTracker.LocalStorage;
 import org.apache.hadoop.mapreduce.JobID;
 import org.apache.hadoop.mapreduce.server.tasktracker.JVMInfo;
 import org.apache.hadoop.mapreduce.server.tasktracker.Localizer;
-import org.apache.hadoop.mapred.TaskTracker.LocalStorage;
-import org.apache.hadoop.util.ProcessTree.Signal;
 import org.apache.hadoop.util.ProcessTree;
+import org.apache.hadoop.util.ProcessTree.Signal;
 import org.apache.hadoop.util.Shell.ShellCommandExecutor;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.List;
 
 /**
  * The default implementation for controlling tasks.
@@ -112,6 +111,7 @@ public class DefaultTaskController extends TaskController {
       FileSystem rawFs = FileSystem.getLocal(getConf()).getRaw();
       long logSize = 0; //TODO MAPREDUCE-1100
       // get the JVM command line.
+      // 获取任务启动命令
       String cmdLine = 
         TaskLog.buildCommandLine(setup, jvmArguments,
             new File(stdout), new File(stderr), logSize, true);
@@ -119,11 +119,14 @@ public class DefaultTaskController extends TaskController {
       // write the command to a file in the
       // task specific cache directory
       // TODO copy to user dir
+      // 创建脚本文件 taskjvm.sh
       Path p = new Path(allocator.getLocalPathForWrite(
           TaskTracker.getPrivateDirTaskScriptLocation(user, jobId, attemptId),
           getConf()), COMMAND_FILE);
 
+      // 将任务启动命令写入到shell脚本taskjvm.sh中
       String commandFile = writeCommand(cmdLine, rawFs, p);
+      // 设置脚本的权限
       rawFs.setPermission(p, TaskController.TASK_LAUNCH_SCRIPT_PERMISSION);
       /*
        * MAPREDUCE-2374: if another thread fork(2)ed a child process during the
@@ -134,9 +137,11 @@ public class DefaultTaskController extends TaskController {
        * would try to execve(2) the script and get ETXTBSY.  Instead, just have
        * bash interpret the script with "bash /path/to/taskjvm.sh".
        */
+      // 创建脚本执行命令 bash -c taskjvm.sh
       shExec = new ShellCommandExecutor(new String[]{
           "bash", commandFile},
           currentWorkDirectory);
+      // 执行脚本，执行脚本中实际又是调用的org.apache.hadoop.mapred.Child类运行任务的
       shExec.execute();
     } catch (Exception e) {
       if (shExec == null) {

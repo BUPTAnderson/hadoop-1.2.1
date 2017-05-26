@@ -67,6 +67,7 @@ class Child {
     return (job.getNumTasksToExecutePerJvm() != 1);
   }
 
+  // org.apache.hadoop.mapred.Child <host> <poort> <task-attempt-id> <log-location> <jvm-id>
   // 调用main方法输入的参数如下：
   // host：表示TaskTracker节点的主机名称
   // port：表示TaskTracker节点RPC端口号
@@ -83,10 +84,12 @@ class Child {
     final TaskAttemptID firstTaskid = TaskAttemptID.forName(args[2]);
     final String logLocation = args[3];
     final int SLEEP_LONGER_COUNT = 5;
-    int jvmIdInt = Integer.parseInt(args[4]);
+    int jvmIdInt = Integer.parseInt(args[4]); // 传入的是一个整数，然后通过firstTaskid和jvmIdInt构造jvmId
     JVMId jvmId = new JVMId(firstTaskid.getJobID(),firstTaskid.isMap(),jvmIdInt);
     String prefix = firstTaskid.isMap() ? "MapTask" : "ReduceTask";
-    
+
+    // 从环境变量中获取参数，这些变量都是在DefaultTaskController中写入到了执行脚本taskjvm.sh中
+    // HADOOP_WORK_DIR(TaskController创建的，默认实现是DefaultTaskController)示例：/tmp/mapred/taskTracker/hadp/jobcache/job_201209010905_0002/attempt_201209010905_0002_m_000000_0/work
     cwd = System.getenv().get(TaskRunner.HADOOP_WORK_DIR);
     if (cwd == null) {
       throw new IOException("Environment variable " + 
@@ -94,6 +97,7 @@ class Child {
     }
 
     // file name is passed thru env
+    // 获取到token file
     String jobTokenFile = 
       System.getenv().get(UserGroupInformation.HADOOP_TOKEN_FILE_LOCATION);
     Credentials credentials = 
@@ -127,7 +131,7 @@ class Child {
     
     int numTasksToExecute = -1; //-1 signifies "no limit"
     int numTasksExecuted = 0;
-    // 创建task log sync thread()
+
     Runtime.getRuntime().addShutdownHook(new Thread() {
       public void run() {
         try {
@@ -139,6 +143,7 @@ class Child {
         }
       }
     });
+    // 创建task log sync thread()(日志同步线程)
     Thread t = new Thread() {
       public void run() {
         //every so often wake up and syncLogs so that we can track
@@ -174,15 +179,16 @@ class Child {
 
     final JvmContext jvmContext = context;
     try {
-      while (true) {
+      while (true) {  //不断询问TaskTracker，以获取新任务
         taskid = null;
         currentJobSegmented = true;
 
-        JvmTask myTask = umbilical.getTask(context);
-        if (myTask.shouldDie()) {
+        JvmTask myTask = umbilical.getTask(context);  // 获取新任务
+        if (myTask.shouldDie()) { // jvm所属作业不存在或者被杀死
           break;
         } else {
-          if (myTask.getTask() == null) {
+          if (myTask.getTask() == null) { // 暂时没有新任务
+            // 等待一段时间后继续询问TaskTracker
             taskid = null;
             currentJobSegmented = true;
 
@@ -196,12 +202,14 @@ class Child {
             continue;
           }
         }
+        // 获取到新任务，下面是进行一系列任务本地化操作
         idleLoopCount = 0;
         task = myTask.getTask();
         task.setJvmContext(jvmContext);
         taskid = task.getTaskID();
 
         // Create the JobConf and determine if this job gets segmented task logs
+        // 将任务相关的一些配置参数添加到作业配置JobConf中，如果参数名相同，则会覆盖，形成任务自己的配置JobConf
         final JobConf job = new JobConf(task.getJobFile());
         currentJobSegmented = logIsSegmented(job);
 
@@ -261,7 +269,7 @@ class Child {
             try {
               // use job-specified working directory
               FileSystem.get(job).setWorkingDirectory(job.getWorkingDirectory());
-              // 根据是map还是reduce分别调用MapTask和ReduceTask的run方法
+              // 根据是map还是reduce分别调用MapTask和ReduceTask的run方法，启动该任务
               taskFinal.run(job, umbilical);        // run the task
             } finally {
               TaskLog.syncLogs
@@ -275,6 +283,7 @@ class Child {
             return null;
           }
         });
+        // 如果jvm复用次数达到上限数目，则直接退出
         if (numTasksToExecute > 0 && ++numTasksExecuted == numTasksToExecute) {
           break;
         }
