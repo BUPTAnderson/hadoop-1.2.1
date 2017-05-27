@@ -488,6 +488,7 @@ public class JobLocalizer {
 
   public static void main(String[] argv)
       throws IOException, InterruptedException {
+    // 在JobLocalizer中创建了一个Job所包含的各种资源，供Task在TaskTracker节点上运行共享，这些相关的目录或资源文件如下：
     // $logdir
     // let $x = $root/tasktracker for some $mapred.local.dir
     //   create $x/$user/jobcache/$jobid/work

@@ -18,20 +18,20 @@
 
 package org.apache.hadoop.mapred;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.mapred.TaskTrackerStatus.TaskTrackerHealthStatus;
+import org.apache.hadoop.util.Shell.ExitCodeException;
+import org.apache.hadoop.util.Shell.ShellCommandExecutor;
+import org.apache.hadoop.util.StringUtils;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Timer;
 import java.util.TimerTask;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.mapred.TaskTrackerStatus.TaskTrackerHealthStatus;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.util.Shell.ExitCodeException;
-import org.apache.hadoop.util.Shell.ShellCommandExecutor;
 
 /**
  * 
@@ -203,7 +203,8 @@ class NodeHealthCheckerService {
     this.conf = conf;
     this.lastReportedTime = System.currentTimeMillis();
     this.isHealthy = true;
-    this.healthReport = "";    
+    this.healthReport = "";
+    // 调用initialize构造NodeHealthMonitorExecutor对象，该对象是TimerTask的子类
     initialize(conf);
   }
 
@@ -211,11 +212,15 @@ class NodeHealthCheckerService {
    * Method which initializes the values for the script path and interval time.
    */
   private void initialize(Configuration conf) {
+    // 健康检测脚本所在的绝对路径
     this.nodeHealthScript = conf.get(HEALTH_CHECK_SCRIPT_PROPERTY);
+    // 健康检测脚本调用频率
     this.intervalTime = conf.getLong(HEALTH_CHECK_INTERVAL_PROPERTY,
         DEFAULT_HEALTH_CHECK_INTERVAL);
+    // 如果健康检测脚本在一定时间内没有响应，则线程NodeHealthCheckerService会将节点标注为'unhealthy'
     this.scriptTimeout = conf.getLong(HEALTH_CHECK_FAILURE_INTERVAL_PROPERTY,
         DEFAULT_HEALTH_SCRIPT_FAILURE_INTERVAL);
+    // 健康检测脚本的输入参数，如果有多个参数，则用逗号隔开
     String[] args = conf.getStrings(HEALTH_CHECK_SCRIPT_ARGUMENTS_PROPERTY,
         new String[] {});
     timer = new NodeHealthMonitorExecutor(args);

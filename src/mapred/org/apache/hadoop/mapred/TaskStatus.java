@@ -17,17 +17,17 @@
  */
 package org.apache.hadoop.mapred;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.util.StringUtils;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
 /**************************************************
  * Describes the current status of a task.  This is
  * not intended to be a comprehensive piece of data.
@@ -44,22 +44,22 @@ public abstract class TaskStatus implements Writable, Cloneable {
   public static enum State {RUNNING, SUCCEEDED, FAILED, UNASSIGNED, KILLED, 
                             COMMIT_PENDING, FAILED_UNCLEAN, KILLED_UNCLEAN}
     
-  private final TaskAttemptID taskid;
-  private float progress;
-  private volatile State runState;
-  private String diagnosticInfo;
-  private String stateString;
-  private String taskTracker;
-  private int numSlots;
+  private final TaskAttemptID taskid; // Task Attempt ID
+  private float progress; // 任务执行进度， 范围为0.0 ~ 1.0
+  private volatile State runState; // 任务运行状态， 包括 RUNNING, SUCCEEDED, FAILED, UNASSIGNED, KILLED, COMMIT_PENDING, FAILED_UNCLEAN, KILLED_UNCLEAN
+  private String diagnosticInfo;  // 诊断信息，一般为错误信息和运行异常信息
+  private String stateString; // 字符串形式的运行状态
+  private String taskTracker; // 该taskTracker的名称，可唯一表示一个TaskTracker，形式如：tracker_mymachine:50010
+  private int numSlots; // 运行该Task Attempt需要的slot数目，默认值是1
     
-  private long startTime; 
-  private long finishTime; 
-  private long outputSize = -1L;
+  private long startTime;   // Task Attempt开始时间
+  private long finishTime;  // Task Attempt完成时间
+  private long outputSize = -1L;  // Task Attempt输出数据量
     
-  private volatile Phase phase = Phase.STARTING; 
-  private Counters counters;
-  private boolean includeCounters;
-  private SortedRanges.Range nextRecordRange = new SortedRanges.Range();
+  private volatile Phase phase = Phase.STARTING; // 任务运行阶段， 包括STRATING， MAP， SHUFFLE， SORT， REDUCE， CLEANUP
+  private Counters counters;  // 该任务中定义的所有计数器(包括系统自带计数器和用户自定义计数器两种)
+  private boolean includeCounters;  // 是否包含计数器，计数器信息每隔60s发送一次
+  private SortedRanges.Range nextRecordRange = new SortedRanges.Range();  // 下一个要处理的数据区间，用于定位坏记录所在区间
 
   public TaskStatus() {
     taskid = new TaskAttemptID();

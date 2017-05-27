@@ -82,18 +82,18 @@ public class TaskTrackerStatus implements Writable {
    */
   static class ResourceStatus implements Writable {
     
-    private long totalVirtualMemory;
-    private long totalPhysicalMemory;
-    private long mapSlotMemorySizeOnTT;
-    private long reduceSlotMemorySizeOnTT;
-    private long availableSpace;
+    private long totalVirtualMemory;  // 总的可用虚拟内存量，单位为byte
+    private long totalPhysicalMemory; // 总的可用物理内存
+    private long mapSlotMemorySizeOnTT; // 每个Map slot对应的内存量
+    private long reduceSlotMemorySizeOnTT;  // 每个Reduce slot对应的内存量
+    private long availableSpace;  // 可用磁盘空间
     
-    private long availableVirtualMemory = UNAVAILABLE; // in byte
-    private long availablePhysicalMemory = UNAVAILABLE; // in byte
-    private int numProcessors = UNAVAILABLE;
-    private long cumulativeCpuTime = UNAVAILABLE; // in millisecond
-    private long cpuFrequency = UNAVAILABLE; // in kHz
-    private float cpuUsage = UNAVAILABLE; // in %
+    private long availableVirtualMemory = UNAVAILABLE; // in byte， 可用的虚拟内存量
+    private long availablePhysicalMemory = UNAVAILABLE; // in byte， 可用的物理内存量
+    private int numProcessors = UNAVAILABLE;  // 节点总的处理器个数
+    private long cumulativeCpuTime = UNAVAILABLE; // in millisecond， 运行以来累计的CPU使用时间
+    private long cpuFrequency = UNAVAILABLE; // in kHz， CPU主频，单位为kHz
+    private float cpuUsage = UNAVAILABLE; // in %， CPU使用率，单位为%
 
     ResourceStatus() {
       totalVirtualMemory = JobConf.DISABLED_MEMORY_LIMIT;
@@ -381,8 +381,11 @@ public class TaskTrackerStatus implements Writable {
                            int httpPort, List<TaskStatus> taskReports, 
                            int taskFailures, int dirFailures,
                            int maxMapTasks, int maxReduceTasks) {
+    // TaskTracker的名称
     this.trackerName = trackerName;
+    // TaskTracker的主机名
     this.host = host;
+    // TaskTracker对外的http端口号
     this.httpPort = httpPort;
 
     // 包含该TT上目前所有的Task状态信息，其中的counters信息会根据之前判断sendCounters值进行决定是否发送。
@@ -395,7 +398,9 @@ public class TaskTrackerStatus implements Writable {
     this.maxMapTasks = maxMapTasks;
     // TT可使用的最大reduce slot数量
     this.maxReduceTasks = maxReduceTasks;
+    // TaskTracker资源(内存，CPU等)信息, 这时候构造的是一个空的类，即该类里面还没有资源信息，可以参看TaskTracker的transmitHeartBeat方法的if (askForNewTask)逻辑中对该类的属性进行了具体的设置
     this.resStatus = new ResourceStatus();
+    // TaskTracker健康状态
     this.healthStatus = new TaskTrackerHealthStatus();
   }
 
@@ -588,11 +593,11 @@ public class TaskTrackerStatus implements Writable {
    */
   static class TaskTrackerHealthStatus implements Writable {
     
-    private boolean isNodeHealthy;
+    private boolean isNodeHealthy;  // 节点是否健康
     
-    private String healthReport;
+    private String healthReport;  // 如果节点不健康，则记录导致不健康的原因
     
-    private long lastReported;
+    private long lastReported;  // 上次汇报健康状况的时间
     
     public TaskTrackerHealthStatus(boolean isNodeHealthy, String healthReport,
         long lastReported) {
