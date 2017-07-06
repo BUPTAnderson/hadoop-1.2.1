@@ -18,9 +18,6 @@
 
 package org.apache.hadoop.mapreduce.lib.output;
 
-import java.io.IOException;
-import java.text.NumberFormat;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -37,12 +34,15 @@ import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskInputOutputContext;
 import org.apache.hadoop.mapreduce.security.TokenCache;
 
+import java.io.IOException;
+import java.text.NumberFormat;
+
 /** A base class for {@link OutputFormat}s that read from {@link FileSystem}s.*/
 public abstract class FileOutputFormat<K, V> extends OutputFormat<K, V> {
   
   protected static final String BASE_OUTPUT_NAME = "mapreduce.output.basename";
   protected static final String PART = "part";
-
+  // 计数器, 写入文件系统的数据量(B)
   public static enum Counter { 
     BYTES_WRITTEN
   }

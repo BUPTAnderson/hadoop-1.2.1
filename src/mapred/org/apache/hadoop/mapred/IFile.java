@@ -17,12 +17,6 @@
  */
 package org.apache.hadoop.mapred;
 
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -39,6 +33,12 @@ import org.apache.hadoop.io.compress.Compressor;
 import org.apache.hadoop.io.compress.Decompressor;
 import org.apache.hadoop.io.serializer.SerializationFactory;
 import org.apache.hadoop.io.serializer.Serializer;
+
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * <code>IFile</code> is the simple <key-len, value-len, key, value> format
@@ -71,6 +71,7 @@ class IFile {
     private long numRecordsWritten = 0;
     private final Counters.Counter writtenRecordsCounter;
 
+    // 支持CRC32校验
     IFileOutputStream checksumOut;
 
     Class<K> keyClass;
@@ -250,6 +251,7 @@ class IFile {
     long bytesRead = 0;
     final long fileLength;
     boolean eof = false;
+    // 支持CRC32循环冗余校验
     final IFileInputStream checksumIn;
     
     byte[] buffer = null;

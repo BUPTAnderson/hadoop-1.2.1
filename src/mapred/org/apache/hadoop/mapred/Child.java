@@ -67,7 +67,7 @@ class Child {
     return (job.getNumTasksToExecutePerJvm() != 1);
   }
 
-  // org.apache.hadoop.mapred.Child <host> <poort> <task-attempt-id> <log-location> <jvm-id>
+  // org.apache.hadoop.mapred.Child <host> <port> <task-attempt-id> <log-location> <jvm-id>
   // 调用main方法输入的参数如下：
   // host：表示TaskTracker节点的主机名称
   // port：表示TaskTracker节点RPC端口号

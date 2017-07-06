@@ -366,6 +366,7 @@ class MapTask extends Task {
       return;
     }
 
+    // 下面是mapTask执行逻辑, 分别对应新旧api
     if (useNewApi) {
       // 调用用户编写的MapReduce程序中的Mapper中的处理逻辑
       runNewMapper(job, splitMetaInfo, umbilical, reporter);
@@ -426,6 +427,7 @@ class MapTask extends Task {
     int numReduceTasks = conf.getNumReduceTasks();
     LOG.info("numReduceTasks: " + numReduceTasks);
     MapOutputCollector collector = null;
+    // 根据reduce task的数目进行判断, 如果为0, 则封装DirectMapOutputCollector对象直接将结果写入HDFS中作为最终结果, 否则封装MapOutputBuffer对象暂时将结果写入本地磁盘以供Reduce Task进一步处理
     if (numReduceTasks > 0) {
       collector = new MapOutputBuffer(umbilical, job, reporter);
     } else { 
@@ -435,6 +437,8 @@ class MapTask extends Task {
       ReflectionUtils.newInstance(job.getMapRunnerClass(), job);
 
     try {
+      // 通常情况下reduce task数目不为0, OldOutputCollector封装的是MapOutputBuffer
+      // run方法(参看MapRunner中的实现)处理逻辑就是不断
       runner.run(in, new OldOutputCollector(collector, conf), reporter);
       collector.flush();
       
@@ -769,6 +773,7 @@ class MapTask extends Task {
                                                      reporter, split);
 
       input.initialize(split, mapperContext);
+      // 调用mapper的run方法, 该run方法中又会调用用户写的run方法
       mapper.run(mapperContext);
       input.close();
       input = null;

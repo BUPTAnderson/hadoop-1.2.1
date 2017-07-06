@@ -491,16 +491,20 @@ public class Job extends JobContext {
   }
 
   /**
+   * 设定为新的API, 除非新API已经被明确的设定或者旧的mapper或reduce被使用了
    * Default to the new APIs unless they are explicitly set or the old mapper or
    * reduce attributes are used.
    * @throws IOException if the configuration is inconsistant
    */
   private void setUseNewAPI() throws IOException {
+    // 获取用户设置的reduce个数, 没有设置的话默认值为1
     int numReduces = conf.getNumReduceTasks();
     String oldMapperClass = "mapred.mapper.class";
     String oldReduceClass = "mapred.reducer.class";
+    // 如果没有设置mapred.mapper.class属性, 则设置mapred.reducer.class为true, 否则为false
     conf.setBooleanIfUnset("mapred.mapper.new-api",
                            conf.get(oldMapperClass) == null);
+    // 如果设置为使用新的mapper API, 则确认旧的mapper API的相关属性没有设置
     if (conf.getUseNewMapper()) {
       String mode = "new map API";
       ensureNotSet("mapred.input.format.class", mode);
@@ -521,8 +525,10 @@ public class Job extends JobContext {
       }
     }
     if (numReduces != 0) {
+      // 如果没有设置mapred.reducer.class属性, 则设置mapred.reducer.new-api为true, 否则为false
       conf.setBooleanIfUnset("mapred.reducer.new-api",
                              conf.get(oldReduceClass) == null);
+      // 如果设置为使用新的reduce API, 则确认旧的reduce API的相关属性没有设置
       if (conf.getUseNewReducer()) {
         String mode = "new reduce API";
         ensureNotSet("mapred.output.format.class", mode);
@@ -542,6 +548,7 @@ public class Job extends JobContext {
   public void submit() throws IOException, InterruptedException, 
                               ClassNotFoundException {
     ensureState(JobState.DEFINE);
+    // 设置使用新的API
     setUseNewAPI();
     
     // Connect to the JobTracker and submit the job

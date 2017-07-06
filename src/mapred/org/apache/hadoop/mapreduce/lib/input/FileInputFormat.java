@@ -51,6 +51,7 @@ import java.util.List;
  */
 public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
 
+  // 计数器, 从文件系统中读入数据量(B)
   public static enum Counter { 
     BYTES_READ
   }

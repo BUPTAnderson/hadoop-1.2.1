@@ -69,28 +69,28 @@ abstract public class Task implements Writable, Configurable {
   public static final String MR_COMBINE_RECORDS_BEFORE_PROGRESS = "mapred.combine.recordsBeforeProgress";
   public static final long DEFAULT_MR_COMBINE_RECORDS_BEFORE_PROGRESS = 10000;
 
-  // Counters used by Task subclasses
+  // Counters used by Task subclasses (map-reduce 计算模型中使用的计数器)
   public static enum Counter { 
-    MAP_INPUT_RECORDS, 
-    MAP_OUTPUT_RECORDS,
-    MAP_SKIPPED_RECORDS,
-    MAP_INPUT_BYTES, 
-    MAP_OUTPUT_BYTES,
-    MAP_OUTPUT_MATERIALIZED_BYTES,
-    COMBINE_INPUT_RECORDS,
-    COMBINE_OUTPUT_RECORDS,
-    REDUCE_INPUT_GROUPS,
-    REDUCE_SHUFFLE_BYTES,
-    REDUCE_INPUT_RECORDS,
-    REDUCE_OUTPUT_RECORDS,
-    REDUCE_SKIPPED_GROUPS,
-    REDUCE_SKIPPED_RECORDS,
-    SPILLED_RECORDS,
-    SPLIT_RAW_BYTES,
-    CPU_MILLISECONDS,
-    PHYSICAL_MEMORY_BYTES,
-    VIRTUAL_MEMORY_BYTES,
-    COMMITTED_HEAP_BYTES
+    MAP_INPUT_RECORDS, // Map Task输入的记录条数
+    MAP_OUTPUT_RECORDS, // Map Task输出的记录条数
+    MAP_SKIPPED_RECORDS,  // Map Task跳过坏记录条数
+    MAP_INPUT_BYTES, // Map Task输入数据量(B)
+    MAP_OUTPUT_BYTES, // Map Task输出数据量
+    MAP_OUTPUT_MATERIALIZED_BYTES, // Map Task数据数据量
+    COMBINE_INPUT_RECORDS,  // Combiner输入记录条数
+    COMBINE_OUTPUT_RECORDS, // Combiner输出记录条数
+    REDUCE_INPUT_GROUPS, // Reduce Task输入分组数目
+    REDUCE_SHUFFLE_BYTES, // Shuffle数据量(B)
+    REDUCE_INPUT_RECORDS, // Reduce Task输入记录条数
+    REDUCE_OUTPUT_RECORDS, // Reduce Task输出记录条数
+    REDUCE_SKIPPED_GROUPS, // Reduce Task跳过坏分组数目
+    REDUCE_SKIPPED_RECORDS, // Reduce Task跳过坏记录条数
+    SPILLED_RECORDS, // 溢写记录条数
+    SPLIT_RAW_BYTES, // split原始数据量(B)
+    CPU_MILLISECONDS, // 耗费CPU时间
+    PHYSICAL_MEMORY_BYTES, // 耗费物理内存量
+    VIRTUAL_MEMORY_BYTES, // 耗费虚拟内存量
+    COMMITTED_HEAP_BYTES // 堆栈使用量(B)
   }
   
   /**
@@ -543,6 +543,7 @@ abstract public class Task implements Writable, Configurable {
       implements Runnable, Reporter {
     private TaskUmbilicalProtocol umbilical;
     private InputSplit split = null;
+    // 任务执行进度
     private Progress taskProgress;
     private JvmContext jvmContext;
     private Thread pingThread = null;
