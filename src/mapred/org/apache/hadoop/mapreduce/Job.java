@@ -101,6 +101,7 @@ public class Job extends JobContext {
 
   public Job(Configuration conf, String jobName) throws IOException {
     this(conf);
+    // setJobName中会确认当前job的状态
     setJobName(jobName);
   }
 
@@ -516,6 +517,7 @@ public class Job extends JobContext {
       }      
     } else {
       String mode = "map compatability";
+      // 确认没有设置mapreduce.inputformat.class, 即inputformat class
       ensureNotSet(JobContext.INPUT_FORMAT_CLASS_ATTR, mode);
       ensureNotSet(JobContext.MAP_CLASS_ATTR, mode);
       if (numReduces != 0) {
@@ -552,7 +554,7 @@ public class Job extends JobContext {
     setUseNewAPI();
     
     // Connect to the JobTracker and submit the job
-    // connect()方法中会new JobClient(),并对JobClient做初始化操作，比如初始化jobSubmitClient
+    // connect()方法中会初始化jobClient，比如初始化jobSubmitClient
     connect();
     // 调用JobClient的submitJobInternal方法,该方法中会最终会通过jobSubmitClient把作业提交到JobTracker
     // 不管是新的mapreduce api还是旧的api, 都会调用submitJobInternal方法.

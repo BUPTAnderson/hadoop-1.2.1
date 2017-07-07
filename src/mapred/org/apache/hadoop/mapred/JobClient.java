@@ -1087,7 +1087,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
   int writeNewSplits(JobContext job, Path jobSubmitDir) throws IOException,
       InterruptedException, ClassNotFoundException {
     Configuration conf = job.getConfiguration();
-    // 根据Job配置中设置的InputFormat，计算该Job的数据数据文件是如何进行分片的
+    // 根据Job配置中设置的InputFormat，计算该Job的数据数据文件是如何进行分片的, 默认值是:TextInputFormat.class
     InputFormat<?, ?> input =
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
