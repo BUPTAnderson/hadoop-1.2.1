@@ -80,15 +80,16 @@ public class Client {
     LogFactory.getLog(Client.class);
   private Hashtable<ConnectionId, Connection> connections =
     new Hashtable<ConnectionId, Connection>();
-
+  // 调用Client的构造方法时会初始化该参数, 一般初始化值为: ObjectWritable.class
   private Class<? extends Writable> valueClass;   // class of call values
   private int counter;                            // counter for call ids
   private AtomicBoolean running = new AtomicBoolean(true); // if client runs
   final private Configuration conf;
 
+  // 调用Client的构造方法时会初始化该参数, 一般初始化值为org.apache.hadoop.net.StandardSocketFactory
   private SocketFactory socketFactory;           // how to create sockets
   private int refCount = 1;
-
+  // 调用Client的构造方法时会初始化该参数, 一般初始化值为false
   private final boolean fallbackAllowed;
   
   final private static String PING_INTERVAL_NAME = "ipc.ping.interval";
@@ -279,7 +280,8 @@ public class Client {
       } else {
         authMethod = AuthMethod.KERBEROS;
       }
-      
+
+      // 实例化header
       header = new ConnectionHeader(protocol == null ? null : protocol
           .getName(), ticket, authMethod);
       
@@ -430,7 +432,7 @@ public class Client {
       short timeoutFailures = 0;
       while (true) {
         try {
-          this.socket = socketFactory.createSocket();
+          this.socket = socketFactory.createSocket(); // 构造一个socket, 但是该socket还未指定server端信息
           this.socket.setTcpNoDelay(tcpNoDelay);
           
           /*
@@ -454,7 +456,7 @@ public class Client {
           }
           
           // connection time out is 20s
-          NetUtils.connect(this.socket, server, 20000);
+          NetUtils.connect(this.socket, server, 20000); // 与指定的server建立socket链接
           if (rpcTimeout > 0) {
             pingInterval = rpcTimeout;  // rpcTimeout overwrites pingInterval
           }
@@ -580,10 +582,10 @@ public class Client {
         final short maxRetries = 15;
         Random rand = null;
         while (true) {
-          setupConnection();
-          InputStream inStream = NetUtils.getInputStream(socket);
-          OutputStream outStream = NetUtils.getOutputStream(socket);
-          writeRpcHeader(outStream);
+          setupConnection(); // 建立连接
+          InputStream inStream = NetUtils.getInputStream(socket); // 获取socket的inputStream
+          OutputStream outStream = NetUtils.getOutputStream(socket); // 获取socket的outputStream
+          writeRpcHeader(outStream); // 向outSteam中写入RPC头信息. 如"hrpc", CURRENT_VERSION, authMethod
           if (useSasl) {
             final InputStream in2 = inStream;
             final OutputStream out2 = outStream;
@@ -622,17 +624,18 @@ public class Client {
               useSasl = false;
             }
           }
+          // 对inStream和outStream进行封装
           this.in = new DataInputStream(new BufferedInputStream
               (new PingInputStream(inStream)));
           this.out = new DataOutputStream
           (new BufferedOutputStream(outStream));
-          writeHeader();
+          writeHeader(); // 向outStream中写入header信息
 
           // update last activity time
           touch();
 
           // start the receiver thread after the socket connection has been set up
-          start();
+          start(); // 启动connection线程, 即调用Connection的run方法
           return;
         }
       } catch (Throwable t) {
@@ -786,8 +789,9 @@ public class Client {
         LOG.debug(getName() + ": starting, having connections " 
             + connections.size());
 
+      // 线程启动起来且calls不为空, 返回true
       while (waitForWork()) {//wait here for work - read or close connection
-        receiveResponse();
+        receiveResponse();  // 获取请求结果
       }
       
       close();
@@ -1090,7 +1094,10 @@ public class Client {
   // 向PRC server发起一次请求并等待返回结果
   public Writable call(Writable param, ConnectionId remoteId)  
                        throws InterruptedException, IOException {
+    // Call封装的是请求参数和返回值, 每个call都有一个对应的id号
     Call call = new Call(param);
+    // 获取connection, 首先从client的Hashtable<ConnectionId, Connection> connections查看是否已经由对应的connection,
+    // 没有的话通过参数构造一个, 然后把call加入到connection的calls里面 <call.id, call>, 然后该connection会与server建立连接
     Connection connection = getConnection(remoteId, call);
     connection.sendParam(call);                 // send the parameter
     boolean interrupted = false;
@@ -1237,17 +1244,18 @@ public class Client {
       synchronized (connections) {
         connection = connections.get(remoteId);
         if (connection == null) {
+          // 通过remoteId来构造一个Connection实例
           connection = new Connection(remoteId);
           connections.put(remoteId, connection);
         }
       }
-    } while (!connection.addCall(call));
+    } while (!connection.addCall(call)); // 将call加入到到
     
     //we don't invoke the method below inside "synchronized (connections)"
     //block above. The reason for that is if the server happens to be slow,
     //it will take longer to establish a connection and that will slow the
     //entire system down.
-    connection.setupIOstreams();
+    connection.setupIOstreams();  // 与server建立连接, 设置IO stream
     return connection;
   }
 
@@ -1338,7 +1346,7 @@ public class Client {
              IPC_CLIENT_CONNECT_MAX_RETRIES_KEY,
              IPC_CLIENT_CONNECT_MAX_RETRIES_DEFAULT);
          connectionRetryPolicy = RetryPolicies.retryUpToMaximumCountWithFixedSleep(
-             max, 1, TimeUnit.SECONDS);
+             max, 1, TimeUnit.SECONDS); // RetryUpToMaximumCountWithFixedSleep
        }
 
        String remotePrincipal = getRemotePrincipal(conf, addr, protocol);

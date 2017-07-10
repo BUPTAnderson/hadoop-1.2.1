@@ -252,14 +252,15 @@ public abstract class FileInputFormat<K, V> extends InputFormat<K, V> {
 
     // generate splits
     List<InputSplit> splits = new ArrayList<InputSplit>();
-    List<FileStatus>files = listStatus(job);
+    // 获取配置项mapred.input.dir对应的FileStatus列表
+    List<FileStatus> files = listStatus(job);
     // 对输入文件进行遍历
     for (FileStatus file: files) {
       Path path = file.getPath();
       FileSystem fs = path.getFileSystem(job.getConfiguration());
       long length = file.getLen();
       BlockLocation[] blkLocations = fs.getFileBlockLocations(file, 0, length);
-      // 输入文件可以被分割
+      // 输入文件可以被分割(如果是TextInputFormat, 该类重写了该方法)
       if ((length != 0) && isSplitable(job, path)) { 
         long blockSize = file.getBlockSize();
         // 默认情况下 splitSize = blockSize

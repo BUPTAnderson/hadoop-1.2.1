@@ -44,11 +44,13 @@ public class TextInputFormat extends FileInputFormat<LongWritable, Text> {
 
   @Override
   protected boolean isSplitable(JobContext context, Path file) {
+    // 如果没有设置压缩, 返回true, 即可分割
     CompressionCodec codec = 
       new CompressionCodecFactory(context.getConfiguration()).getCodec(file);
     if (null == codec) {
       return true;
     }
+    // 如果设置了压缩, 判断压缩类是否是SplittableCompressionCodec的子类, 如果是返回true(可分割), 否则返回false(不可分割)
     return codec instanceof SplittableCompressionCodec;
   }
 

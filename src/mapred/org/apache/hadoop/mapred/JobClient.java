@@ -485,6 +485,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
    * @throws IOException
    */
   public void init(JobConf conf) throws IOException {
+    // 获取mapred-site.xml中的配置项mapred.job.tracker的值，　如：anderson-JD:9001，即jobtracker的ip和端口号
     String tracker = conf.get("mapred.job.tracker", "local");
     tasklogtimeout = conf.getInt(
       TASKLOG_PULL_TIMEOUT_KEY, DEFAULT_TASKLOG_TIMEOUT);
@@ -494,8 +495,8 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       this.jobSubmitClient = new LocalJobRunner(conf);
     } else {
       this.rpcJobSubmitClient = 
-          createRPCProxy(JobTracker.getAddress(conf), conf);
-      this.jobSubmitClient = createProxy(this.rpcJobSubmitClient, conf);
+          createRPCProxy(JobTracker.getAddress(conf), conf); // 返回一个JobSubmissionProtocol的动态代理类(是通过Invoker进行的封装)
+      this.jobSubmitClient = createProxy(this.rpcJobSubmitClient, conf); // RetryInvocationHandler对上面的代理了又进行了一次封装
     }        
   }
 
@@ -507,7 +508,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
             JobSubmissionProtocol.class,
             JobSubmissionProtocol.versionID, addr, 
             UserGroupInformation.getCurrentUser(), conf,
-            NetUtils.getSocketFactory(conf, JobSubmissionProtocol.class), 
+            NetUtils.getSocketFactory(conf, JobSubmissionProtocol.class), // 默认值为:org.apache.hadoop.net.StandardSocketFactory
             0,
             RetryUtils.getMultipleLinearRandomRetry(
                 conf,
@@ -515,7 +516,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
                 MAPREDUCE_CLIENT_RETRY_POLICY_ENABLED_DEFAULT,
                 MAPREDUCE_CLIENT_RETRY_POLICY_SPEC_KEY,
                 MAPREDUCE_CLIENT_RETRY_POLICY_SPEC_DEFAULT
-                ),
+                ),  // 默认的RetryPolicy值为null
             false);
     
     return rpcJobSubmitClient;
@@ -540,7 +541,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
             MAPREDUCE_CLIENT_RETRY_POLICY_SPEC_DEFAULT,
             JobTrackerNotYetInitializedException.class,
             SafeModeException.class
-            ); 
+            ); //值为: TryOnceThenFail
 
     /*
      * Method specific retry policies for killJob and killTask...
@@ -555,9 +556,9 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     
     final JobSubmissionProtocol jsp = (JobSubmissionProtocol) RetryProxy.create(
         JobSubmissionProtocol.class,
-        rpcJobSubmitClient, defaultPolicy, methodNameToPolicyMap);
+        rpcJobSubmitClient, defaultPolicy, methodNameToPolicyMap); // 又对rpcJobSubmitClient通过RetryInvocationHandler进行了一次封装
     RPC.checkVersion(JobSubmissionProtocol.class,
-        JobSubmissionProtocol.versionID, jsp);
+        JobSubmissionProtocol.versionID, jsp); // 通过RPC对jobtracker发起一次调用, 根据jobTracker的返回值判断client端的JobSubmissionProtocol的versionID与jobtracker是否相同
     return jsp;
   }
 
@@ -725,7 +726,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
    * configure the jobconf of the user with the command line options of 
    * -libjars, -files, -archives
    * @param job the JobConf
-   * @param submitJobDir
+   * @param jobSubmitDir
    * @throws IOException
    */
   private void copyAndConfigureFiles(JobConf job, Path jobSubmitDir) 
@@ -777,13 +778,13 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     }
     submitJobDir = fs.makeQualified(submitJobDir);
     FsPermission mapredSysPerms = new FsPermission(JobSubmissionFiles.JOB_DIR_PERMISSION);
-    // 创建文件夹${mapreduce.job.dir}
+    // 创建文件夹${mapreduce.job.dir}, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002
     FileSystem.mkdirs(fs, submitJobDir, mapredSysPerms);
-    // filesDir: ${mapreduce.job.dir}/files
+    // filesDir: ${mapreduce.job.dir}/files, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/files
     Path filesDir = JobSubmissionFiles.getJobDistCacheFiles(submitJobDir);
-    // archivesDir: ${mapreduce.job.dir}/archives
+    // archivesDir: ${mapreduce.job.dir}/archives, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/archives
     Path archivesDir = JobSubmissionFiles.getJobDistCacheArchives(submitJobDir);
-    // libjarsDir: ${mapreduce.job.dir}/libjars
+    // libjarsDir: ${mapreduce.job.dir}/libjars, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/libjars
     Path libjarsDir = JobSubmissionFiles.getJobDistCacheLibjars(submitJobDir);
     // add all the command line files/ jars and archive
     // first copy them to jobtrackers filesystem 
@@ -859,7 +860,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
     // get DelegationTokens for cache files
     TrackerDistributedCacheManager.getDelegationTokens(job, 
                                                        job.getCredentials());
-    // 下面是将用户job所在的jar文件上传到hdfs上
+    // 下面是将用户job所在的jar文件上传到hdfs上 (配置项mapred.jar对应的值)
     String originalJarPath = job.getJar();
 
     if (originalJarPath != null) {           // copy jar to JobTracker's fs
@@ -874,10 +875,10 @@ public class JobClient extends Configured implements MRConstants, Tool  {
               || !(jobJarURI.getScheme().equals(fs.getUri().getScheme())
                   && jobJarURI.getAuthority().equals(
                                             fs.getUri().getAuthority()))) {
-        // ${mapreduce.job.dir}/job.jar
+        // ${mapreduce.job.dir}/job.jar, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.jar
         Path submitJarFile = JobSubmissionFiles.getJobJar(submitJobDir);
         job.setJar(submitJarFile.toString());
-        // 从本地拷贝到hdfs
+        // 将job.jar 从本地拷贝到hdfs
         fs.copyFromLocalFile(originalJarFile, submitJarFile);
         fs.setReplication(submitJarFile, replication);
         fs.setPermission(submitJarFile, 
@@ -956,14 +957,14 @@ public class JobClient extends Configured implements MRConstants, Tool  {
       InterruptedException,
       IOException{
         JobConf jobCopy = job;
-        // 获取作业存放目录:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging
+        // 通过PRC向jobTracker发起调用, 获取作业stage目录:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging
         // ${mapreduce.jobtracker.staging.root.dir}的默认值是:/tmp/hadoop/mapred/staging
         // 实际是调用JobTracker端的getStagingAreaDir()方法
         Path jobStagingArea = JobSubmissionFiles.getStagingDir(JobClient.this,
             jobCopy);
         // 通过RPC调用JobTracker的方法，获取下一个jobID, jobID的格式是：job_200912121733_0002 job_yyyyMMddHHmm_0002
         JobID jobId = jobSubmitClient.getNewJobId();
-        // 获取设置submitJobDir:${mapreduce.job.dir}目录：
+        // 获取设置submitJobDir(作业提交目录): ${mapreduce.job.dir}目录：
         // submitJobDir = ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}
         Path submitJobDir = new Path(jobStagingArea, jobId.toString());
         jobCopy.set("mapreduce.job.dir", submitJobDir.toString());
@@ -971,6 +972,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
         try {
           // 令牌
           populateTokenCache(jobCopy, jobCopy.getCredentials());
+          // 下面是拷贝资源文件到hdfs操作(下面所涉及的目录都是hdfs上的目录)
           // 创建${mapreduce.job.dir}目录, 并上传文件.在copyAndConfigureFiles中完成
           // 除了job.xml和分片信息文件 其它目录的建立以及文件的上传都在该方法中完成.
           copyAndConfigureFiles(jobCopy, submitJobDir);
@@ -1037,7 +1039,7 @@ public class JobClient extends Configured implements MRConstants, Tool  {
 
           try {
             // 将job的配置文件信息(jobConf对象)写入到job.xml文件中,供JobTracker查询
-            // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.xml
+            // ${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.xml, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.xml
             jobCopy.writeXml(out);
           } finally {
             out.close();
@@ -1087,11 +1089,11 @@ public class JobClient extends Configured implements MRConstants, Tool  {
   int writeNewSplits(JobContext job, Path jobSubmitDir) throws IOException,
       InterruptedException, ClassNotFoundException {
     Configuration conf = job.getConfiguration();
-    // 根据Job配置中设置的InputFormat，计算该Job的数据数据文件是如何进行分片的, 默认值是:TextInputFormat.class
+    // 根据Job配置中设置的InputFormat，计算该Job的数据数据文件是如何进行分片的, 默认值是:TextInputFormat.class, 而TextInputFormat是FileInputFormat的子类, FileInputFormat是抽象类
     InputFormat<?, ?> input =
       ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
-    // get InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
-    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，可以参考默认的FileInputFormat的实现(org.apache.hadoop.mapreduce.lib.input.FileInputFormat)
+    // InputFormat的getSplits方法生成InputSplit信息, 即分片信息。
+    // InputFormat是接口，根据我们设置的inputFormat.class通过反射得到对应的实例，这里参考FileInputFormat的实现(org.apache.hadoop.mapreduce.lib.input.FileInputFormat)
     // FileInputFormat返回的是List<FileSplit>, FileSplit extends InputSplit
     // 如果不想用hadoop自带的FileInputFormat的默认getSplits方法实现, 可以自定义实现, 重写该默认实现逻辑来定义数据数据文件分片的规则.
     List<InputSplit> splits = input.getSplits(job);

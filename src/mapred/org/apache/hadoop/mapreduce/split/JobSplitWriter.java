@@ -18,11 +18,8 @@
 
 package org.apache.hadoop.mapreduce.split;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.Arrays;
-import java.util.List;
-
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -36,8 +33,10 @@ import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.JobSubmissionFiles;
 import org.apache.hadoop.mapreduce.split.JobSplit.SplitMetaInfo;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * The class that is used by the Job clients to write splits (both the meta
@@ -75,7 +74,7 @@ public class JobSplitWriter {
     // 向文件job.split中写入原始InputSplit, 并返回SplitMetaInfo信息
     SplitMetaInfo[] info = writeNewSplits(conf, splits, out);
     out.close();
-    // 创建job.splitmetainfo文件, 将返回的SplitMetaInfo对象数组信息序列化写入
+    // 创建job.splitmetainfo文件, 将返回的SplitMetaInfo对象数组信息序列化写入, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.splitmetainfo
     writeJobSplitMetaInfo(fs,JobSubmissionFiles.getJobSplitMetaFile(jobSubmitDir), 
         new FsPermission(JobSubmissionFiles.JOB_FILE_PERMISSION), splitVersion,
         info);
@@ -117,7 +116,7 @@ public class JobSplitWriter {
 
     SplitMetaInfo[] info = new SplitMetaInfo[array.length];
     // 下面是获取序列化类，将每一个InputSplit对象进行序列化写入到输出流中
-    // 输出流就是:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.split
+    // 输出流就是:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.split, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.split
     // 1. 先写入：split.getClass().getName()
     // 2. 写入：serializer.serialize(split)将整个对象序列化写入
     // 3. 对应每个InputSplit对象, 创建对应的SplitMetaInfo对象
@@ -139,8 +138,8 @@ public class JobSplitWriter {
         // }
         // 所以实际是调用的FileSplit的write(DataOutput out), 进入该方法发现并没有将FileSplit的hosts信息写入输出流
         // 即向 job.split文件中没有保存每个split对应的hosts信息, 该信息保存到了SplitMetaInfo中, 对应信息如下
-        //   split.log:  |split_0.getclass.getName,分片0所在file name, split_0.length|split_1.getclass.getName,分片1所在file name, split_1.length|....
-        //split.log中位置:0                                                          t                                                          m
+        //   job.split:  |split_0.getclass.getName,分片0所在file name, split_0.start, split_0.length|split_1.getclass.getName,分片1所在file name, split_1.start, split_1.length|....
+        //split.log中位置:0                                                                         t                                                                         m
         //每个split对应的信息： SplitMetaInfo(split_0.getLocations, 0, split_0.length), SplitMetaInfo(split_1.getLocations, t, split_1.length)
         serializer.serialize(split);
         long currCount = out.getPos();
@@ -197,8 +196,8 @@ public class JobSplitWriter {
   throws IOException {
     // write the splits meta-info to a file for the job tracker
     // job.splitmetainfo 内容:
-    // header|version|分片数|split_0.getlocations.length, split_0.getlocations, split_0.在split.log中的偏移量, split_0.length|
-    //                     |split_1.getlocations.length, split_1.getlocations, split_1.在split.log中的偏移量, split_1.length|
+    // header|version|分片数|split_0.getlocations 个数, split_0.getlocations 各个location位置, split_0.在job.split中的偏移量, split_0.length|
+    //                     |split_1.getlocations 个数, split_1.getlocations 各个location位置, split_1.在job.split中的偏移量, split_1.length|
     //                     |...
     FSDataOutputStream out = 
       FileSystem.create(fs, filename, p);

@@ -502,7 +502,7 @@ public class Job extends JobContext {
     int numReduces = conf.getNumReduceTasks();
     String oldMapperClass = "mapred.mapper.class";
     String oldReduceClass = "mapred.reducer.class";
-    // 如果没有设置mapred.mapper.class属性, 则设置mapred.reducer.class为true, 否则为false
+    // 如果没有设置mapred.mapper.class属性, 则设置mapred.mapper.new-api为true, 否则为false
     conf.setBooleanIfUnset("mapred.mapper.new-api",
                            conf.get(oldMapperClass) == null);
     // 如果设置为使用新的mapper API, 则确认旧的mapper API的相关属性没有设置
@@ -554,7 +554,7 @@ public class Job extends JobContext {
     setUseNewAPI();
     
     // Connect to the JobTracker and submit the job
-    // connect()方法中会初始化jobClient，比如初始化jobSubmitClient
+    // connect()方法中会初始化jobClient，比如初始化jobSubmitClient(实际与jobtracker进行通信的代理类), 建立与jobTracker的RPC链接(会调用一次PRC来判断client与jobtracker的协议版本号是否一致)
     connect();
     // 调用JobClient的submitJobInternal方法,该方法中会最终会通过jobSubmitClient把作业提交到JobTracker
     // 不管是新的mapreduce api还是旧的api, 都会调用submitJobInternal方法.

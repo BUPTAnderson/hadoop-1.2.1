@@ -17,15 +17,15 @@
  */
 package org.apache.hadoop.io.retry;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.util.StringUtils;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Map;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.util.StringUtils;
 
 class RetryInvocationHandler implements InvocationHandler {
   public static final Log LOG = LogFactory.getLog(RetryInvocationHandler.class);
@@ -51,14 +51,16 @@ class RetryInvocationHandler implements InvocationHandler {
 
   public Object invoke(Object proxy, Method method, Object[] args)
     throws Throwable {
+    // 如果方法是killJob或killTask, 返回TRY_ONCE_THEN_FAIL, 否则返回null, 正常的调用返回null
     RetryPolicy policy = methodNameToPolicyMap.get(method.getName());
     if (policy == null) {
-      policy = defaultPolicy;
+      policy = defaultPolicy; // 默认的policy是TryOnceThenFail
     }
     
     int retries = 0;
     while (true) {
       try {
+        // 调用implementation来获取结果
         return invokeMethod(method, args);
       } catch (Exception e) {
         if (!policy.shouldRetry(e, retries++)) {

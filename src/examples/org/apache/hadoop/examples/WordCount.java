@@ -74,6 +74,7 @@ public class WordCount {
     // 设置作业的优先级
     conf.set("mapred.job.priority", JobPriority.NORMAL.name());
     Job job = new Job(conf, "word count");
+    // 设置属性: mapred.jar
     job.setJarByClass(WordCount.class);
     job.setMapperClass(TokenizerMapper.class);
     job.setCombinerClass(IntSumReducer.class);

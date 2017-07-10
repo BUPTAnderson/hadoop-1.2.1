@@ -161,6 +161,7 @@ public class RPC {
       // per-job, we choose (a).
       Client client = clients.get(factory);
       if (client == null) {
+        // 实例化一个Client
         client = new Client(ObjectWritable.class, conf, factory);
         clients.put(factory, client);
       } else {
@@ -213,8 +214,10 @@ public class RPC {
         InetSocketAddress address, UserGroupInformation ticket,
         Configuration conf, SocketFactory factory,
         int rpcTimeout, RetryPolicy connectionRetryPolicy) throws IOException {
+      // 初始化remoteId
       this.remoteId = Client.ConnectionId.getConnectionId(address, protocol,
           ticket, rpcTimeout, connectionRetryPolicy, conf);
+      // 从缓存中获取client, 如果已经存在的话,获取并返回, 如果不存在的话, 初始化client, 并放入缓存中
       this.client = CLIENTS.getClient(conf, factory);
     }
 
@@ -411,10 +414,10 @@ public class RPC {
     if (UserGroupInformation.isSecurityEnabled()) {
       SaslRpcServer.init(conf);
     }
-    // Invoker是RPC类的静态嵌套类，同时是InvocationHandler的子类，实际就是一个动态代理类
-    // 然后通过Proxy.newProxyInstance方法用新建的invoker实例构造了一个proxy返回，
+    // Invoker是RPC类的静态嵌套类，同时是InvocationHandler的子类
+    // 然后通过Proxy.newProxyInstance方法用新建的invoker实例构造了一个proxy返回，返回的实际就是一个动态代理类
     // 将该proxy强制转换成VersionedProtocol， 通过proxy调用VersionedProtocol的方法时，
-    // 都有进去Invoker的invoke方法里面，在invoke方法里面分析请求发给PRC server端进行处理。
+    // 都会进入Invoker的invoke方法里面，在invoke方法里面分析请求发给PRC server端进行处理。
     final Invoker invoker = new Invoker(protocol, addr, ticket, conf, factory,
         rpcTimeout, connectionRetryPolicy);
     VersionedProtocol proxy = (VersionedProtocol)Proxy.newProxyInstance(
