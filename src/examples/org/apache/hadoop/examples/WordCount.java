@@ -76,10 +76,15 @@ public class WordCount {
     Job job = new Job(conf, "word count");
     // 设置属性: mapred.jar
     job.setJarByClass(WordCount.class);
+    // 设置属性: mapreduce.map.class
     job.setMapperClass(TokenizerMapper.class);
+    // 设置属性: mapreduce.combine.class
     job.setCombinerClass(IntSumReducer.class);
+    // 设置属性: mapreduce.reduce.class
     job.setReducerClass(IntSumReducer.class);
+    // 设置属性: mapred.output.key.class
     job.setOutputKeyClass(Text.class);
+    // 设置属性: mapred.output.value.class
     job.setOutputValueClass(IntWritable.class);
     FileInputFormat.addInputPath(job, new Path(otherArgs[0]));
     FileOutputFormat.setOutputPath(job, new Path(otherArgs[1]));

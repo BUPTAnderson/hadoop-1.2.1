@@ -118,7 +118,7 @@ public class JobSplitWriter {
     // 下面是获取序列化类，将每一个InputSplit对象进行序列化写入到输出流中
     // 输出流就是:${mapreduce.jobtracker.staging.root.dir}/${user}/.staging/${jobId}/job.split, 如: /tmp/hadoop/mapred/staging/shirdrn/.staging/job_200912121733_0002/job.split
     // 1. 先写入：split.getClass().getName()
-    // 2. 写入：serializer.serialize(split)将整个对象序列化写入
+    // 2. 写入：serializer.serialize(split)将split对象序列化写入
     // 3. 对应每个InputSplit对象, 创建对应的SplitMetaInfo对象
     //该对象包括InputSpilt元信息在job.split文件中的偏移量，InputSplit的长度
     //最后将该SplitMetaInfo对象数组返回.
@@ -138,9 +138,9 @@ public class JobSplitWriter {
         // }
         // 所以实际是调用的FileSplit的write(DataOutput out), 进入该方法发现并没有将FileSplit的hosts信息写入输出流
         // 即向 job.split文件中没有保存每个split对应的hosts信息, 该信息保存到了SplitMetaInfo中, 对应信息如下
-        //   job.split:  |split_0.getclass.getName,分片0所在file name, split_0.start, split_0.length|split_1.getclass.getName,分片1所在file name, split_1.start, split_1.length|....
-        //split.log中位置:0                                                                         t                                                                         m
-        //每个split对应的信息： SplitMetaInfo(split_0.getLocations, 0, split_0.length), SplitMetaInfo(split_1.getLocations, t, split_1.length)
+        //   job.split:  |split_0.getclass.getName,分片0所在file name, split_0.start(分片在file中的起始位置), split_0.length(分片长度)|split_1.getclass.getName,分片1所在file name, split_1.start, split_1.length|....
+        //split.log中位置:0                                                                                                       t                                                                        m
+        //每个split对应的信息： SplitMetaInfo(split_0.getLocations, 0(split_0在job.split中的偏移量), split_0.length(split_0的分片大小)), SplitMetaInfo(split_1.getLocations, t, split_1.length)
         serializer.serialize(split);
         long currCount = out.getPos();
         String[] locations = split.getLocations();
