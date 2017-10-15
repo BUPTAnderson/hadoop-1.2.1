@@ -18,9 +18,9 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.IOException;
-
 import org.apache.hadoop.mapred.Counters;
+
+import java.io.IOException;
 
 public class TestStreamingCombiner extends TestStreaming {
 

@@ -18,16 +18,15 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.File;
-
 import junit.framework.TestCase;
-
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapred.TaskReport;
+
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.IOException;
 
 /**
  * Tests for the ability of a streaming task to set the status

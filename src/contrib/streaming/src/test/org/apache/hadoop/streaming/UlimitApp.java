@@ -18,9 +18,7 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.*;
-
-/** 
+/**
  *  The UlimitApp discards the input
  *  and exec's ulimit -v to know the ulimit value.
  *  And writes the output to the standard out. 

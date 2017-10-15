@@ -18,12 +18,12 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.File;
-import java.io.IOException;
-
 import org.apache.hadoop.mapred.Counters;
 import org.apache.hadoop.mapred.Counters.Counter;
 import org.apache.hadoop.mapred.Counters.Group;
+
+import java.io.File;
+import java.io.IOException;
 
 /**
  * This class tests streaming counters in MapReduce local mode.

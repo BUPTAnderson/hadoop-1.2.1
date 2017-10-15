@@ -18,12 +18,12 @@
 
 package org.apache.hadoop.streaming;
 
+import org.apache.hadoop.typedbytes.TypedBytesInput;
+import org.apache.hadoop.typedbytes.TypedBytesOutput;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-
-import org.apache.hadoop.typedbytes.TypedBytesInput;
-import org.apache.hadoop.typedbytes.TypedBytesOutput;
 
 public class TypedBytesReduceApp {
 

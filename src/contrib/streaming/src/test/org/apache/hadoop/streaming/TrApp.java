@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.*;
-
 import org.apache.hadoop.streaming.Environment;
 
 /** A minimal Java implementation of /usr/bin/tr.

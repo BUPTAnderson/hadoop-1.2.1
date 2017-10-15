@@ -17,14 +17,14 @@
  */
 package org.apache.hadoop.mapred.gridmix;
 
+import org.apache.hadoop.mapred.gridmix.RandomTextDataGenerator;
+import org.junit.Test;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.hadoop.mapred.gridmix.RandomTextDataGenerator;
-
 import static org.junit.Assert.*;
-import org.junit.Test;
 
 /**
  * Test {@link RandomTextDataGenerator}.

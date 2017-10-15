@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.*;
-
 /**
  * Output an arbitrary number of stderr lines before or after
  * consuming the keys/values from stdin.

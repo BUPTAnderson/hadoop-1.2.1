@@ -18,12 +18,12 @@
 
 package org.apache.hadoop.streaming;
 
+import org.apache.hadoop.io.IntWritable;
+
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-
-import org.apache.hadoop.io.IntWritable;
 
 public class RawBytesMapApp {
   private String find;

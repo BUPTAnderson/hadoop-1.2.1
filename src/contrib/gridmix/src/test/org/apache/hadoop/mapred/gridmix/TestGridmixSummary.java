@@ -17,10 +17,6 @@
  */
 package org.apache.hadoop.mapred.gridmix;
 
-import static org.junit.Assert.*;
-
-import java.io.IOException;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
@@ -36,6 +32,10 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.tools.rumen.JobStory;
 import org.apache.hadoop.tools.rumen.JobStoryProducer;
 import org.junit.Test;
+
+import java.io.IOException;
+
+import static org.junit.Assert.*;
 
 /**
  * Test {@link ExecutionSummarizer} and {@link ClusterSummarizer}.

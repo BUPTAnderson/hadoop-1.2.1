@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.*;
-
 /**
  * A simple Java app that will consume all input from stdin, echoing
  * it to stdout, and then optionally throw an exception (which should

@@ -19,8 +19,6 @@
 package org.apache.hadoop.streaming;
 
 import junit.framework.TestCase;
-import java.io.*;
-
 import org.apache.hadoop.fs.FileUtil;
 
 /**

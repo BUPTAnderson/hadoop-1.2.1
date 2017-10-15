@@ -18,11 +18,11 @@
 
 package org.apache.hadoop.streaming;
 
+import org.apache.hadoop.fs.FileUtil;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
-import org.apache.hadoop.fs.FileUtil;
 
 /**
  * This class tests StreamXmlRecordReader

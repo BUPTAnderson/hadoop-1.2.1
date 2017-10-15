@@ -18,18 +18,15 @@
 
 package org.apache.hadoop.streaming;
 
-import java.io.*;
-
+import junit.framework.TestCase;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapred.TestMiniMRWithDFS;
 import org.apache.hadoop.util.StringUtils;
-
-import junit.framework.TestCase;
 
 /**
  * This tests the setting of memory limit for streaming processes.
